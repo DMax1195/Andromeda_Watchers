@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>ВЕЛ’НОКТАРИ — авторская книга-игра</title>
+<title>НАБЛЮДАТЕЛИ АНДРОМЕДЫ — книга-игра</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"><style>
 :root{--bg:#05060e;--pn:#0c0f1d;--ln:#1c2140;--tx:#dbe4ff;--dim:#7b86b5;--ac:#8fb8ff;--rd:#ff6b8b;--am:#c9a8ff;--bl:#6ee7ff}
 *{box-sizing:border-box}html,body{height:100%;margin:0}
@@ -29,6 +29,18 @@ input{width:100%;font:inherit;color:var(--tx);background:var(--pn);border:1px so
 #modal{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;padding:16px;z-index:9}#modal.on{display:flex}
 #mb{background:var(--pn);border:1px solid var(--ln);border-radius:12px;padding:14px;width:100%;max-width:460px;max-height:80vh;overflow:auto;display:flex;flex-direction:column;gap:8px}
 #mb h3{margin:0;color:var(--ac);font-size:15px}#mb p{margin:0;color:var(--dim)}#mb.dead h3{color:var(--rd);font-size:18px}
+/* Интерактивное оглавление журнала */
+.toc{display:flex;flex-direction:column;gap:5px;max-height:42vh;overflow:auto;padding-right:3px}
+.toc-item{display:flex;align-items:center;gap:9px;width:100%;padding:9px 10px;border:1px solid var(--ln);background:#090d19;text-align:left}
+.toc-item .toc-mark{flex:0 0 23px;text-align:center;font-size:16px;color:var(--dim)}
+.toc-item .toc-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.toc-item .toc-name{color:var(--tx);font-size:13px;font-weight:700}
+.toc-item .toc-pages{color:var(--dim);font-size:11px}
+.toc-item.done{border-color:#31534a}.toc-item.done .toc-mark{color:#83d6a5}
+.toc-item.current{border-color:var(--ac);background:#17213a;box-shadow:inset 3px 0 var(--ac)}.toc-item.current .toc-mark,.toc-item.current .toc-name{color:var(--ac)}
+.toc-item.locked{opacity:.52;cursor:not-allowed}
+.toc-summary{padding:7px 10px 9px 42px;color:#aebbdc;font:italic 12px/1.5 Lora,Georgia,serif;border-left:1px solid var(--ln);margin:0 0 3px 11px}
+.toc-legend{font-size:11px;color:var(--dim);line-height:1.7}
 
 #loader,#splash,#prologue{align-items:center;justify-content:center;text-align:center;padding:24px;position:relative;overflow:hidden}
 .ld-t{font:700 22px Oswald,Impact,sans-serif;letter-spacing:.35em;color:var(--ac);animation:pulse 1.6s infinite}@keyframes pulse{50%{opacity:.45}}
@@ -45,7 +57,11 @@ input{width:100%;font:inherit;color:var(--tx);background:var(--pn);border:1px so
 button.big{background:var(--ac);color:#07102a;font-weight:700;border:0;text-align:center;width:100%;max-width:320px;letter-spacing:.1em;animation:fi 2s 1.6s both}
 #pr{max-width:440px}.pp{font:italic 17px/1.7 Lora,Georgia,serif;color:#c3d6e2;opacity:0;animation:fi 1.4s forwards;margin:0 0 14px}
 #prGo.pp{font:700 15px Oswald,sans-serif;font-style:normal;color:#07102a}
-.m.nar{align-self:stretch;max-width:100%;background:none;border:0;border-left:2px solid var(--ln);border-radius:0;font:italic 15px/1.6 Lora,Georgia,serif;color:#9fb6c6;padding:2px 10px}
+/* --- книжная вёрстка: абзацы, прямая речь, разделитель сцен --- */
+.m.nar,.m.spk{align-self:stretch;max-width:100%;background:none;border:0;border-radius:0;padding:0 2px;font:400 16px/1.75 Lora,Georgia,serif;color:#c3d0ee;text-align:justify;text-indent:1.6em;hyphens:auto;-webkit-hyphens:auto;overflow-wrap:anywhere}
+.m.spk{color:#e8eeff}.m.spk .dash{color:var(--am);font-weight:600}
+.m.nar+.m.nar,.m.nar+.m.spk,.m.spk+.m.nar,.m.spk+.m.spk{margin-top:-5px}
+.m.hd+.m.nar,.m.hd+.m.spk,.m.sep+.m.nar,.m.sep+.m.spk{text-indent:0}
 #final{padding:16px;overflow:auto}#fn{display:flex;flex-direction:column;gap:6px}
 #fn h3{font:600 13px Oswald,sans-serif;letter-spacing:.2em;color:var(--dim);text-transform:uppercase;margin:14px 0 2px}
 .fh{font:700 30px/1.15 Oswald,Impact,sans-serif;color:var(--ac);margin:0}.fh.bad{color:var(--rd)}.fs{color:var(--am);font-size:13px}
@@ -56,17 +72,32 @@ button.big{background:var(--ac);color:#07102a;font-weight:700;border:0;text-alig
 #chs{display:flex;flex-direction:column;gap:6px;overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y proximity;scrollbar-width:thin;scrollbar-color:var(--ac) transparent}
 #chs::-webkit-scrollbar{width:6px}#chs::-webkit-scrollbar-thumb{background:var(--ac);border-radius:3px}
 #chs button{flex:0 0 auto;scroll-snap-align:start;padding:8px 10px;font-size:14px;line-height:1.35}
+#chs button.more{text-align:center;background:var(--ac);color:#07102a;font-weight:700;letter-spacing:.04em;border:0}
 #chh{font-size:11px;color:var(--am);text-align:center;letter-spacing:.05em}
 html{background:#02030a}body{height:100dvh;overflow:hidden}
 @media (min-aspect-ratio:3/4){body{border-left:1px solid var(--ln);border-right:1px solid var(--ln)}}
 #splash,#prologue{overflow-y:auto}.blurb{font:italic 14px/1.55 Lora,Georgia,serif;color:#b8c4ea;max-width:400px;animation:fi 2s 1.2s both}
 .m.hd{align-self:stretch;max-width:100%;text-align:center;padding:18px 0 8px;animation:fi 1s}.m.hd small{display:block;letter-spacing:.3em;color:var(--am);font-size:11px}
 .m.hd h4{font:700 26px/1.15 Oswald,Impact,sans-serif;margin:6px 0 0;color:var(--tx);letter-spacing:.08em;text-transform:uppercase}
-.m.sep{align-self:center;color:var(--dim);letter-spacing:.6em;font-size:14px;padding:6px 0}
+/* --- обложка, страницы, разделители --- */
+#splash{overflow:hidden;justify-content:flex-end;padding:0;text-align:center}
+.cv{position:absolute;inset:-5%;background:#02030a url(cover.png) center 22%/cover no-repeat;animation:breathe 24s ease-in-out infinite alternate;will-change:transform}
+@keyframes breathe{from{transform:scale(1) translate3d(0,0,0)}to{transform:scale(1.13) translate3d(-1.5%,-2%,0)}}
+.shade{position:absolute;inset:0;pointer-events:none;background:linear-gradient(to top,#02030a 0%,#02030af2 34%,#02030ab3 56%,#02030a40 74%,transparent 90%),radial-gradient(ellipse at 50% 18%,#2a6dff22,transparent 60%)}
+#snow{pointer-events:none}
+#splash .in{max-height:100%;overflow-y:auto;padding:24px 20px calc(22px + env(safe-area-inset-bottom,0px));gap:12px;scrollbar-width:none}
+#splash .in::-webkit-scrollbar{display:none}
+.ttl{font-size:clamp(28px,9vw,56px);line-height:1.08;filter:drop-shadow(0 0 10px #4da3ff99)}
+@keyframes glow{50%{filter:drop-shadow(0 0 20px #5aaaffee) drop-shadow(0 0 44px #2a6dffaa)}}
+#splash .blurb{color:#d3dcff;text-shadow:0 1px 6px #000}
+#splash .cred,#splash .sub,#splash .kick{text-shadow:0 1px 5px #000}
+.pg{margin-top:6px;text-align:center;font-size:12px;letter-spacing:.14em;color:var(--am)}
+.pg:empty{display:none}.pg::after{content:"";display:block;height:2px;margin-top:5px;border-radius:1px;background:linear-gradient(90deg,var(--am) var(--p,0%),var(--ln) 0)}
+.m.sep{align-self:stretch;max-width:100%;text-align:center;color:var(--dim);font:400 22px/1 Lora,Georgia,serif;letter-spacing:.45em;text-indent:.45em;padding:16px 0 12px;opacity:.9}
 </style></head><body>
 
 <div id="loader" class="scr on"><div class="ld-t" id="ldT"></div><div class="ld-bar"><i id="ldbar"></i></div><div id="ldlog"></div><div class="cred" id="ldA"></div></div>
-<div id="splash" class="scr"><canvas id="snow"></canvas><div class="in"><div class="kick">АВТОРСКАЯ КНИГА-ИГРА</div><h1 class="ttl" id="spT"></h1><div class="sub" id="spS"></div><div class="blurb" id="spB"></div><div class="cred" id="spF"></div><button id="spGo" class="big">НАЧАТЬ ИГРУ</button><button id="spCont" class="big" style="display:none;background:var(--pn);color:var(--tx);border:1px solid var(--ln)">ПРОДОЛЖИТЬ</button><div class="cred" id="spC"></div><div class="cred" id="spA"></div></div></div>
+<div id="splash" class="scr"><div class="cv"></div><div class="shade"></div><canvas id="snow"></canvas><div class="in"><div class="kick">АВТОРСКАЯ КНИГА-ИГРА</div><h1 class="ttl" id="spT"></h1><div class="sub" id="spS"></div><div class="blurb" id="spB"></div><div class="cred" id="spF"></div><button id="spGo" class="big">НАЧАТЬ ИГРУ</button><button id="spCont" class="big" style="display:none;background:var(--pn);color:var(--tx);border:1px solid var(--ln)">ПРОДОЛЖИТЬ</button><div class="cred" id="spC"></div><div class="cred" id="spA"></div></div></div>
 <div id="prologue" class="scr"><div class="in"><div class="kick">ПРОЛОГ</div><div id="pr"></div><button id="prGo" class="big pp">ВЫБРАТЬ ПУТЬ</button></div></div>
 <div id="setup" class="scr">
  <h1>ВЫБОР ПУТИ</h1><div style="color:var(--dim)">Вы Лиор’Саэн, тихий спутник, чей свет ведёт Аэ́рхиса. Выберите путь Наблюдателя.</div><div class="cred" id="credA"></div><div class="cred" id="ucA"></div>
@@ -83,6 +114,7 @@ html{background:#02030a}body{height:100dvh;overflow:hidden}
  <div id="top">
   <div class="tl"><b id="hpt"></b><div class="bar"><i id="hpb" style="background:var(--ac)"></i></div><button id="bMode"></button><button id="bInv">🎒 <span id="ic"></span></button><button id="bLog">📓</button></div>
   <div class="tl"><b id="o2t"></b><div class="bar"><i id="o2b" style="background:var(--bl)"></i></div><b id="ent"></b><div class="bar"><i id="enb" style="background:var(--am)"></i></div><b id="am" style="min-width:56px"></b></div>
+  <div class="pg" id="pg"></div>
  </div>
  <div class="cred" id="credG"></div><div id="chat"></div><div id="typ"></div>
  <div id="bot"><div id="wait" hidden></div><div id="chh" hidden></div><div id="chs"></div></div>
@@ -110,9 +142,10 @@ const STORY_DATA = {
      drain {energy,o2}, waitSeconds+waitText, isEnding+endingTitle+epilogue, choices [{text,goto,reqSkill,reqItem,useItem,reqAmmo,reqFlag,forbidFlag,hpCost,o2Cost,energyCost,addItems,addFlags}].
      Ресурсы в этой книге: hp = Жизненная сила, o2 = Ясность, energy = Свет Лиор’Саэна, ammo = Слова. */
   meta: {
-    title: "ВЕЛ’НОКТАРИ", sub: "Книга-игра о тех, кто решил остаться",
-    blurb: "Два Наблюдателя из галактики Андромеды, Аэ́рхис и его стеклянный спутник Лиор’Саэн, чей свет видит будущее, разбивают корабль о земной океан. Люди, которых они прилетели изучать, спасают их и принимают как своих. Но у каждого дома есть тайны, а у каждого света есть цена. Вы Лиор’Саэн: вы не держите оружия, зато можете подсказывать, светить и удерживать Аэ́рхиса на границе сознания. Каждый ваш выбор меняет судьбу героя, людей вокруг и двух миров.",
-    facts: "Авторская книга-игра · 19 глав и эпилог · 377 страниц (в работе)",
+    title: "НАБЛЮДАТЕЛИ АНДРОМЕДЫ", sub: "Книга-игра о тех, кто решил остаться",
+    blurb: "Океан был холодным, мокрым и совершенно равнодушным. Корабль, которому полагалось лишь посмотреть на Землю издали, рухнул в него на скорости, о которой лучше не думать. Уцелели двое: Наблюдатель Аэ́рхис, умный, упрямый и сильно недооценивший планету, и вы, Лиор’Саэн, молчаливый стеклянный спутник со светом в трещинах. Рук у вас нет. Голоса нет. Зато есть дар видеть, куда ведут нити судьбы, и привычка светить там, где другие уже сдались. Люди, которых вы собирались изучать, вытащили вас из воды раньше, чем успели задать вопросы. Вопросы придут позже. Неудобные.",
+    facts: "Авторская книга-игра · 19 глав и эпилог · стр. 5–377 (в работе)",
+    totalPages: 377,
     chapters: [
       { no: 1, title: "Падение", pages: "5–28", ready: true, sum: "Гибель корабля, ледяной океан и первые руки людей." },
       { no: 2, title: "Люди из океана", pages: "28–47", ready: false, sum: "Палуба «Морской ласточки», капитан Ольсен, первые слова." },
@@ -184,10 +217,15 @@ const STORY_DATA = {
   heroes: [
     { id: "watcher", name: "Аэ́рхис", path: "Наблюдатель", desc: "Полевой Наблюдатель из рода Вел’Ноктари. Видит то, что другие пропускают.", skills: ["Наблюдение", "Интуиция", "Память", "Эмпатия"], items: ["Дневник наблюдателя"], ammo: 4 },
     { id: "tracker", name: "Аэ́рхис", path: "Следопыт", desc: "Находит путь там, где нет ни карт, ни звёзд.", skills: ["Навигация", "Выживание", "Ремесло", "Скрытность"], items: ["Спектральный компас"], ammo: 3 },
-    { id: "speaker", name: "Аэ́рхис", path: "Толкователь", desc: "Слышит смысл за словами и умеет быть понятым.", skills: ["Язык", "Эмпатия", "Медицина", "Интуиция"], items: ["Кристалл речи"], ammo: 6 }
+    { id: "speaker", name: "Аэ́рхис", path: "Толкователь", desc: "Слышит смысл за словами и умеет быть понятым.", skills: ["Язык", "Эмпатия", "Медицина", "Интуиция"], items: ["Кристалл речи"], ammo: 6 },
+    { id: "healer", name: "Аэ́рхис", path: "Целитель", desc: "Чувствует боль других и знает, как её унять.", skills: ["Медицина", "Выживание", "Эмпатия", "Память"], items: ["Целебный отвар"], ammo: 4 },
+    { id: "shadow", name: "Аэ́рхис", path: "Тень", desc: "Проходит там, где его не ждут, и остаётся незамеченным.", skills: ["Скрытность", "Наблюдение", "Навигация", "Ремесло"], items: ["Плащ тишины"], ammo: 3 },
+    { id: "maker", name: "Аэ́рхис", path: "Мастер", desc: "Чинит, строит и находит решение в обломках.", skills: ["Ремесло", "Выживание", "Навигация", "Память"], items: ["Набор инструментов"], ammo: 3 },
+    { id: "keeper", name: "Аэ́рхис", path: "Хранитель памяти", desc: "Помнит всё услышанное и умеет это рассказать.", skills: ["Память", "Язык", "Интуиция", "Эмпатия"], items: ["Осколок света"], ammo: 5 }
   ],
   nodes: {
     c01_01: {
+      page: 5,
       chapter: { no: 1, title: "Падение", pages: "5–28" },
       messages: [
         { n: "Если бы звёзды умели говорить, они сказали бы, что падение начинается задолго до удара. Оно начинается в тот миг, когда кто-то из тех, кто смотрит, решает подойти ближе. Так началось и это: в ночь, когда корабль «Эхо» сорвался с орбиты Земли и пошёл вниз, прожигая облака, как раскалённая игла." },
@@ -208,6 +246,7 @@ const STORY_DATA = {
       ]
     },
     c01_02: {
+      page: 8,
       messages: [
         { n: "Удар был беззвучным: так бывает, когда звук не успевает за событием. Корабль вспорол поверхность океана, и мир вспыхнул белым, потом синим, потом чёрным. Вас швырнуло о переборку, трещины на вашем теле на миг погасли, и вы впервые за всю долгую службу почувствовали страх." },
         { from: "Эхо-7", t: "Корпус разгерметизирован. Давление растёт. Аэ́рхис... мне очень жаль." },
@@ -224,6 +263,7 @@ const STORY_DATA = {
       ]
     },
     c01_03: {
+      page: 11,
       messages: [
         { n: "Океан принимает рубку без жалости. Ледяная вода врывается через пробоины, и холод обжигает так, будто это огонь. Тьма вокруг густая, плотная, в ней нет ни верха, ни низа, только давление и глухой стук сердца Аэ́рхиса." },
         "Холод... Лиор, я не чувствую рук.",
@@ -240,6 +280,7 @@ const STORY_DATA = {
       ]
     },
     c01_04: {
+      page: 14,
       messages: [
         { n: "Обломок переборки зажал ногу Аэ́рхиса, и каждая попытка вырваться только тянула его глубже. Где-то высоко, словно сквозь толстое стекло, дрожало слабое пятно: поверхность. До неё было так далеко, что казалось, это просто память о свете." },
         "Лёгкие горят. Я запутался в обломках!",
@@ -253,6 +294,7 @@ const STORY_DATA = {
       ]
     },
     c01_05: {
+      page: 17,
       messages: [
         { n: "Поверхность ударила по лицу холодным ветром, и Аэ́рхис с хрипом втянул воздух. Над волнами, в нескольких сотнях шагов, покачивались огни: большой корабль, жёлтые фонари, силуэты на палубе. Вы поняли, что нити будущего вдруг стали толще и теплее." },
         { from: "Брюн", t: "Эй, на воде! Там человек! Тео, спускай шлюпку, живее!" },
@@ -267,6 +309,7 @@ const STORY_DATA = {
       ]
     },
     c01_06: {
+      page: 20,
       messages: [
         { n: "Палуба «Морской ласточки» пахла солью, дымом и горячим супом. Грубые руки подняли Аэ́рхиса из шлюпки, накинули на плечи тяжёлое одеяло и поставили у борта. Вокруг сомкнулся круг незнакомых лиц, каждое из которых было освещено фонарём и каждое смотрело с тревогой, а не со страхом." },
         { from: "Брюн", t: "Тише, парень, тише. Дыши. Я Брюн, старый боцман. Ты теперь на моём корабле." },
@@ -284,6 +327,7 @@ const STORY_DATA = {
       ]
     },
     c01_07: {
+      page: 24,
       messages: [
         { n: "К ночи ветер стих, и «Морская ласточка» пошла мерным ходом по чёрной воде. Аэ́рхиса отвели в крохотную каюту, где пахло смолой и сушёным яблоком, и оставили одного. Вы устроились у его плеча, и впервые за долгие часы ваш свет перестал дрожать." },
         { from: "Тео", t: "Эй... можно? Я принёс суп. Мама говорит, что он лечит всё, даже сломанные корабли." },
@@ -302,6 +346,7 @@ const STORY_DATA = {
       ]
     },
     c01_end: {
+      page: 27,
       isEnding: true, endingTitle: "Конец Главы 1", epilogue: "Первая глава книги закончена. «Морская ласточка» идёт к берегу, а вы и Аэ́рхис впервые засыпаете под шум чужого моря. Глава 2, «Люди из океана», в работе. Этот финал не входит в число концовок.",
       messages: [
         { n: "Так заканчивается Глава 1. Корабль идёт сквозь ночь, и где-то впереди, за краем тьмы, ждёт берег, которого вы никогда не видели." },
@@ -313,14 +358,14 @@ const STORY_DATA = {
 
 /* ===================== ДВИЖОК ===================== */
 const SK = ["Наблюдение","Интуиция","Память","Эмпатия","Язык","Навигация","Выживание","Ремесло","Скрытность","Медицина"];
-const KEY = "velnoktari_book_save_v1", MAXINV = 8;
+const KEY = "velnoktari_book_save_v1", MAXINV = 8, CHAT_MAX = 50;
 const LB = STORY_DATA.meta.labels;
 const R = { hp: { l: LB.hp, max: 20, u: "" }, o2: { l: LB.o2, max: 100, u: "%" }, en: { l: LB.en, max: 100, u: "%" }, ammo: { l: LB.ammo, max: 99, u: "" } };
 const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 const lsDel = k => { try { localStorage.removeItem(k); } catch (e) {} };
 const $ = s => document.querySelector(s);
 const el = (t, x) => { const e = document.createElement(t); e.textContent = x; return e; };
-let st = null, run = 0, cfg = { mode: "real", sound: true }, sel = null, picked = new Set();
+let skip = false, st = null, run = 0, cfg = { mode: "real", sound: true }, sel = null, picked = new Set();
 
 let ac = null;
 function tone(f, d, type = "sine", v = .05, f2) {
@@ -341,7 +386,7 @@ function drawSetup() {
     h.desc && b.append(el("small", h.desc)); h.skills && b.append(el("small", "Навыки: " + h.skills.join(", "))); h.items && b.append(el("small", "Снаряжение: " + h.items.join(", ") + " · слова " + h.ammo));
     b.onclick = () => { sfx.click(); sel = key; drawSetup(); }; box.append(b); };
   STORY_DATA.heroes.forEach(h => card(h, h.id));
-  card({ name: "＋ Создать своего Наблюдателя", desc: "Имя и 4 навыка по вашему выбору" }, "custom");
+  card({ name: "＋ Создать свой путь", desc: "Имя и 4 навыка по вашему выбору" }, "custom");
   $("#cust").hidden = sel !== "custom";
   $("#sk").innerHTML = "";
   SK.forEach(s => { const b = el("button", s); b.className = picked.has(s) ? "sel" : ""; b.onclick = () => { sfx.click(); picked.has(s) ? picked.delete(s) : picked.size < 4 && picked.add(s); drawSetup(); }; $("#sk").append(b); });
@@ -358,22 +403,56 @@ $("#go").onclick = () => {
   st = { hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], flags: [], chat: [], queue: [], pend: [], node: null, waitUntil: 0, waitDone: false, dead: false };
   $("#chat").innerHTML = ""; show("game"); enter(STORY_DATA.meta.start);
 };
-$("#cont").onclick = () => { st = JSON.parse(lsGet(KEY)); cfg.sound = st.sound; cfg.mode = st.mode; show("game"); $("#chat").innerHTML = ""; st.chat.forEach(draw); pump(); };
+$("#cont").onclick = () => {
+  st = JSON.parse(lsGet(KEY));
+  cfg.sound = st.sound; cfg.mode = st.mode;
+  { const cn = STORY_DATA.nodes[st.node]; if (cn && cn.page) st.page = cn.page; }
+
+  // Совместимость со старыми сохранениями: включаем постраничное чтение
+  // для оставшейся очереди, если в сохранении ещё нет параметров пагинации.
+  if (Array.isArray(st.queue) && typeof st.paged !== "boolean") {
+    const np = st.queue.filter(isPar).length;
+    st.paged = np > 3;
+    st.pgSizes = st.paged ? chunkSizes(np) : [];
+    st.pgLeft = st.paged ? st.pgSizes.shift() : 0;
+  }
+
+  show("game"); $("#chat").innerHTML = ""; st.chat.forEach(draw); pump();
+};
 const show = id => document.querySelectorAll(".scr").forEach(e => e.classList.toggle("on", e.id === id));
 
 /* --- состояние --- */
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const SPEECH = /^\s*[—―]\s*|^\s*–\s+/;
 const fill = t => t.replace(/\{hero\}/g, st ? st.hero : "").replace(/\{author\}/g, STORY_DATA.meta.author);
 function draw(m) {
   const d = document.createElement("div"); d.className = "m " + m.k + (m.bad ? " bad" : "");
-  if (m.k === "hd") d.append(el("small", (m.no > 19 ? "ЭПИЛОГ" : "ГЛАВА " + m.no) + " · СТР. " + m.pages), el("h4", m.t)); else { if (m.k === "in") d.append(el("b", m.f || st.hero)); d.append(document.createTextNode(m.t)); } const c = $("#chat"); c.append(d); c.scrollTop = c.scrollHeight;
+  if (m.k === "hd") d.append(el("small", (m.no > 19 ? "ЭПИЛОГ" : "ГЛАВА " + m.no) + " · СТР. " + m.pages), el("h4", m.t)); else if (m.k === "sep") { d.textContent = "* * *"; d.setAttribute("role", "separator"); }
+  else if (m.k === "spk") { const dh = el("span", "—\u00a0"); dh.className = "dash"; d.append(dh, document.createTextNode(m.t.replace(SPEECH, ""))); if (m.f) d.title = m.f; }
+  else { if (m.k === "in") d.append(el("b", m.f || st.hero)); d.append(document.createTextNode(m.t)); } const c = $("#chat"); c.append(d); c.scrollTop = c.scrollHeight;
 }
-function add(k, t, bad, x) { const m = { k, t, bad }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; } st.chat.push(m); draw(m); save(); }
+function add(k, t, bad, x) { const m = { k, t, bad }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; } st.chat.push(m); if (st.chat.length > CHAT_MAX) st.chat.splice(0, st.chat.length - CHAT_MAX); draw(m); const cb = $("#chat"); while (cb.children.length > CHAT_MAX) cb.firstChild.remove(); save(); }
+/* --- счётчик глав и страниц: читает page из текущего узла STORY_DATA --- */
+function pgInfo() {
+  const M = STORY_DATA.meta, n = STORY_DATA.nodes[st.node] || {}, C = M.chapters;
+  const rg = c => String(c.pages).split(/[–-]/).map(Number), has = (c, pg) => { const [a, b] = rg(c); return pg >= a && pg <= (b || a); };
+  const page = n.page || st.page || (C[0] ? rg(C[0])[0] : 0);
+  let c = n.chapter ? C.find(x => x.no === n.chapter.no) : null;
+  if (!c) c = C.find(x => x.no === st.chap && has(x, page));
+  if (!c) c = C.find(x => has(x, page));
+  if (!c) c = C.find(x => x.no === st.chap);
+  return { page, c, total: M.totalPages };
+}
+function pgTxt() {
+  if (!st) return "";
+  const { page, c, total } = pgInfo(); if (!c || !page) return "";
+  return (c.no > 19 ? "Эпилог" : "Глава " + c.no) + " · Стр. " + page + " / " + total;
+}
 function status() {
   const set = (k, t, b, v, m) => { $(t).textContent = v; $(b).style.width = Math.max(0, st[k]) / m * 100 + "%"; };
   set("hp", "#hpt", "#hpb", LB.short.hp + " " + st.hp + "/20", 20); set("o2", "#o2t", "#o2b", LB.short.o2 + " " + st.o2 + "%", 100); set("en", "#ent", "#enb", LB.short.en + " " + st.en + "%", 100);
   $("#hpb").style.background = st.hp <= 6 ? "var(--rd)" : "var(--ac)"; $("#o2b").style.background = st.o2 <= 25 ? "var(--rd)" : "var(--bl)";
-  $("#am").textContent = LB.short.ammo + " " + st.ammo; $("#ic").textContent = st.inv.length + "/" + MAXINV;
+  $("#am").textContent = LB.short.ammo + " " + st.ammo; $("#pg").textContent = pgTxt(); $("#pg").style.setProperty("--p", Math.min(100, pgInfo().page / STORY_DATA.meta.totalPages * 100) + "%"); $("#ic").textContent = st.inv.length + "/" + MAXINV;
 }
 function res(k, d) {
   const r = R[k], b0 = st[k]; st[k] = Math.max(0, Math.min(r.max, st[k] + d)); if (d < 0) st.stats[{ hp: "dmg", o2: "o2", en: "en", ammo: "ammo" }[k]] += b0 - st[k];
@@ -381,40 +460,80 @@ function res(k, d) {
   if ((st.hp <= 0 || st.o2 <= 0) && !st.dead) { st.dead = true; add("sys", "[СИГНАЛ ПОТЕРЯН: " + (st.hp <= 0 ? STORY_DATA.meta.deathMsg.hp : STORY_DATA.meta.deathMsg.o2) + "]", true); }
   status();
 }
-function give(it) { if (st.inv.length < MAXINV) { st.inv.push(it); add("sys", "[ИНВЕНТАРЬ: Получен «" + it + "»]"); } else st.pend.push(it); status(); }
+function give(it) { if (st.inv.length < MAXINV) { st.inv.push(it); add("sys", "[ИНВЕНТАРЬ: Получен «" + it + "»]"); } else { st.pend.push(it); save(); } status(); }
 function enter(id) {
   const n = STORY_DATA.nodes[id]; if (!n) { add("sys", "[ОШИБКА: нет узла " + id + "]", true); return; }
-  st.node = id; st.stats.steps++; st.waitDone = false; st.waitUntil = 0; const o = n.onEnter || {};
+  st.node = id; if (n.page) st.page = n.page; else if (n.chapter) st.page = parseInt(n.chapter.pages); st.stats.steps++; st.waitDone = false; st.waitUntil = 0; const o = n.onEnter || {};
   o.hp && res("hp", o.hp); o.o2 && res("o2", o.o2); o.energy && res("en", o.energy); o.ammo && res("ammo", o.ammo);
   const dr = n.drain; if (dr) { dr.energy && res("en", dr.energy); dr.o2 && res("o2", dr.o2); if (st.en <= 0 && !st.dead) { add("sys", STORY_DATA.meta.coldMsg, true); res("hp", -2); } }
   (o.removeItems || []).forEach(it => { const i = st.inv.indexOf(it); if (i >= 0) { st.inv.splice(i, 1); add("sys", "[ИНВЕНТАРЬ: Утрачен «" + it + "»]"); } });
   (o.addItems || []).forEach(give);
   (o.addFlags || []).forEach(f => { if (!st.flags.includes(f)) { st.flags.push(f); STORY_DATA.meta.flagNames[f] && add("sys", "[ЖУРНАЛ: новая заметка]"); } });
   (o.removeFlags || []).forEach(f => st.flags = st.flags.filter(x => x !== f));
-  st.queue = (n.messages || []).filter(m => typeof m === "string" || ((!m.skill || st.skills.includes(m.skill)) && (!m.item || st.inv.includes(m.item)) && (!m.flag || st.flags.includes(m.flag)) && (!m.noFlag || !st.flags.includes(m.noFlag)))).map(m => typeof m === "string" ? { t: fill(m) } : m.sep ? { t: "✦ ✦ ✦", k: "sep" } : { t: fill(m.n || m.t), n: !!m.n, f: m.from });
+  st.queue = (n.messages || []).filter(m => typeof m === "string" || ((!m.skill || st.skills.includes(m.skill)) && (!m.item || st.inv.includes(m.item)) && (!m.flag || st.flags.includes(m.flag)) && (!m.noFlag || !st.flags.includes(m.noFlag)))).map(m => { const tx = typeof m === "string" ? m : (m.n || m.t || ""); if ((typeof m !== "string" && m.sep) || tx.trim() === "***") return { t: "* * *", k: "sep" }; const ft = fill(tx); if (SPEECH.test(ft)) return { t: ft, k: "spk", f: typeof m === "string" ? undefined : m.from }; return typeof m === "string" ? { t: ft } : { t: ft, n: !!m.n, f: m.from }; });
   if (n.chapter) { st.chap = n.chapter.no; st.queue.unshift({ k: "hd", t: n.chapter.title, no: n.chapter.no, pages: n.chapter.pages }); }
+  { const np = st.queue.filter(isPar).length; st.paged = np > 3; st.pgSizes = st.paged ? chunkSizes(np) : []; st.pgLeft = st.paged ? st.pgSizes.shift() : 0; }
   st.nextAt = st.queue.length ? Date.now() + (st.mode === "fast" ? 120 : rnd(STORY_DATA.meta.pace.first)) : 0;
   status(); save(); pump();
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const rnd = ([a, b]) => Math.round((a + Math.random() * (b - a)) * 1000);
+/* --- постраничная подача длинных сцен --- */
+let holdRun = 0; /* == run, пока выбор намеренно скрыт: ждём «Читать дальше» или конец страницы */
+const isPar = q => q.k !== "hd" && q.k !== "sep";
+const chunkSizes = n => { const k = Math.ceil(n / 3), b = Math.floor(n / k), e = n % k; return Array.from({ length: k }, (_, i) => b + (i < e ? 1 : 0)); }; /* 4→2+2, 5→3+2, 7→3+2+2 */
+function focusChunk(e) { const c = $("#chat"); if (!e || !e.isConnected) return; const t = e.getBoundingClientRect().top - c.getBoundingClientRect().top; if (t < 0) c.scrollTop += t - 8; }
+function more(my) {
+  return new Promise(res => {
+    holdRun = my; const box = $("#chs"), c = $("#chat"); box.innerHTML = ""; box.style.maxHeight = ""; $("#chh").hidden = true;
+    const go = () => { if (my !== run || (window.getSelection && String(window.getSelection()))) return; c.onclick = null; box.innerHTML = ""; holdRun = 0; sfx.click(); res(); };
+    const b = el("button", "Читать дальше..."); b.className = "more"; b.onclick = go; c.onclick = go; box.append(b); try { b.focus({ preventScroll: true }); } catch (e) {}
+  });
+}
+function readEnd(my) { /* выбор открывается только после явного дочитывания страницы до конца */
+  return new Promise(res => {
+    const c = $("#chat"), h = $("#chh"), atEnd = () => c.scrollHeight - c.scrollTop - c.clientHeight <= 24;
+    let confirmed = false;
+    holdRun = my;
+    h.textContent = "↓ Прокрутите до конца последнего абзаца, чтобы открыть выбор";
+    h.hidden = false;
+    const off = () => {
+      c.removeEventListener("scroll", chk);
+      c.onclick = null;
+    };
+    const finish = () => {
+      if (confirmed || my !== run || !atEnd()) return;
+      confirmed = true; off(); h.hidden = true; holdRun = 0; res();
+    };
+    const chk = () => { if (my !== run) return off(); finish(); };
+    c.addEventListener("scroll", chk, { passive: true });
+    c.onclick = () => {
+      if (my !== run) return off();
+      if (atEnd()) { finish(); return; }
+      c.scrollBy({ top: Math.max(100, c.clientHeight * .85), behavior: "smooth" });
+    };
+  });
+}
 async function pump() {
-  const my = ++run; modeBtn(); status(); $("#chs").innerHTML = ""; $("#chs").style.maxHeight = ""; $("#chh").hidden = true; $("#wait").hidden = true;
+  const my = ++run; skip = false; $("#chat").onclick = null; let first = null, hasParagraph = false; modeBtn(); status(); $("#chs").innerHTML = ""; $("#chs").style.maxHeight = ""; $("#chh").hidden = true; $("#wait").hidden = true;
   while (st.pend.length) { await askDrop(st.pend[0]); if (my !== run) return; }
   while (st.queue.length && !st.dead) {
     const q = st.queue[0], fast = () => st.mode === "fast", P = STORY_DATA.meta.pace;
-    if (!st.nextAt) { st.nextAt = Date.now() + (fast() ? 120 : rnd(q.n || q.k ? P.narr : P.msg)); save(); }
-    while (!fast() && Date.now() < st.nextAt) {
+    const cnt = isPar(q); if (cnt) hasParagraph = true;
+    if (st.paged && st.pgLeft <= 0 && st.queue.some(isPar)) { focusChunk(first); first = null; await more(my); if (my !== run) return; st.pgLeft = st.pgSizes.shift() || 3; save(); }
+    if (!st.paged && !st.nextAt) { st.nextAt = Date.now() + (fast() ? 120 : rnd(q.n || q.k ? P.narr : P.msg)); save(); }
+    while (!st.paged && !fast() && !skip && Date.now() < st.nextAt) {
       const left = st.nextAt - Date.now();
       $("#typ").textContent = q.n || q.k ? "" : (left < 2200 ? "▌ " + (q.f || st.hero) + " печатает..." : "▌ Приём сигнала...");
-      await sleep(Math.min(250, left)); if (my !== run) return;
+      await sleep(Math.min(100, left)); if (my !== run) return;
     }
-    $("#typ").textContent = ""; st.queue.shift(); add(q.k || (q.n ? "nar" : "in"), q.t, false, q); sfx.msg();
+    $("#typ").textContent = ""; if (skip) { skip = false; st.nextAt = Date.now(); } st.queue.shift(); add(q.k || (q.n ? "nar" : "in"), q.t, false, q); sfx.msg(); if (st.paged && cnt) st.pgLeft--; if (!first) first = $("#chat").lastElementChild;
     const nx = st.queue[0]; st.nextAt = nx ? (fast() ? Date.now() + 120 : st.nextAt + rnd(nx.n || nx.k ? P.narr : P.msg)) : 0; save();
     await sleep(fast() ? 60 : 150); if (my !== run) return;
   }
   $("#typ").textContent = ""; if (st.dead) return death(my);
   const n = STORY_DATA.nodes[st.node];
+  if (hasParagraph) { focusChunk(first); await readEnd(my); if (my !== run) return; }
   if (n.waitSeconds && !st.waitDone && st.mode === "real") {
     if (!st.waitUntil) { st.waitUntil = Date.now() + n.waitSeconds * 1000; save(); }
     await countdown(n, my); if (my !== run) return; st.waitDone = true; st.waitUntil = 0; save(); sfx.msg();
@@ -468,6 +587,7 @@ function restart() {
 }
 function applyChoice(c) {
   if (c.useItem) { const k = st.inv.indexOf(c.useItem); if (k >= 0) { st.inv.splice(k, 1); add("sys", "[ИНВЕНТАРЬ: Потрачен «" + c.useItem + "»]"); } }
+  (c.removeFlags || []).forEach(f => { st.flags = st.flags.filter(x => x !== f); });
   (c.addItems || []).forEach(give);
   (c.addFlags || []).forEach(f => { if (!st.flags.includes(f)) { st.flags.push(f); STORY_DATA.meta.flagNames[f] && add("sys", "[ЖУРНАЛ: новая заметка]"); } });
   status();
@@ -475,7 +595,7 @@ function applyChoice(c) {
 function useItem(i) {
   const k = st.inv.indexOf(i); if (k < 0) return; st.inv.splice(k, 1); add("sys", "[ИНВЕНТАРЬ: Использован «" + i + "»]");
   const fx = STORY_DATA.items[i]; fx.hp && res("hp", fx.hp); fx.o2 && res("o2", fx.o2); fx.energy && res("en", fx.energy); status(); save();
-  if ($("#chs").children.length && !st.dead) choices(STORY_DATA.nodes[st.node]);
+  if ($("#chs").children.length && !st.dead && holdRun !== run) choices(STORY_DATA.nodes[st.node]);
 }
 function showInv() {
   modal(m => { m.append(el("h3", "ИНВЕНТАРЬ НАПАРНИКА " + st.inv.length + "/" + MAXINV)); if (!st.inv.length) m.append(el("p", "Пусто."));
@@ -505,15 +625,37 @@ function askDrop(item) {
   }, false));
 }
 $("#bInv").onclick = showInv;
+$("#chat").onclick = () => { if (st && st.queue && st.queue.length && st.mode !== "fast") skip = true; };
 function modeBtn() { $("#bMode").textContent = st.mode === "fast" ? "⚡" : "⏱"; $("#bMode").title = st.mode === "fast" ? "Быстрый темп (нажмите: реалистичный)" : "Реалистичный темп (нажмите: быстрый)"; }
 $("#bMode").onclick = () => { st.mode = st.mode === "fast" ? "real" : "fast"; modeBtn(); save(); };
 $("#bLog").onclick = () => modal(m => {
   m.append(el("h3", "ЖУРНАЛ"), el("p", STORY_DATA.meta.title + " · авторская книга-игра · " + STORY_DATA.meta.author), el("p", "Позывной: " + st.hero), el("p", "Навыки: " + st.skills.join(", ")),
-    el("p", "Выносливость " + st.hp + "/20 · O₂ " + st.o2 + "% · Заряд " + st.en + "% · Патроны " + st.ammo), el("h3", "Заметки"));
+    el("p", LB.hp + " " + st.hp + "/20 · " + LB.o2 + " " + st.o2 + "% · " + LB.en + " " + st.en + "% · " + LB.ammo + " " + st.ammo), el("p", pgTxt()), el("h3", "Заметки"));
   const nt = st.flags.filter(f => STORY_DATA.meta.flagNames[f]); if (!nt.length) m.append(el("p", "Пока нет."));
   nt.forEach(f => m.append(el("p", "• " + STORY_DATA.meta.flagNames[f])));
-  m.append(el("h3", "Оглавление"));
-  STORY_DATA.meta.chapters.forEach(c => m.append(el("p", (st.chap === c.no ? "▶ " : (st.chap > c.no ? "✔ " : "· ")) + (c.no > 19 ? "Эпилог" : "Глава " + c.no + ". ") + (c.no > 19 ? "" : c.title) + " (стр. " + c.pages + ")" + (c.ready ? "" : " · в работе"))));
+  m.append(el("h3", "Оглавление · стр. 5–377"));
+  m.append(el("p", "✓ Пройдено · ▶ Текущая глава · 🔒 Впереди" )).className = "toc-legend";
+  const toc = el("div", ""); toc.className = "toc";
+  const current = Math.max(1, Math.min(20, Number(st.chap || pgInfo().c?.no || 1)));
+  STORY_DATA.meta.chapters.forEach(c => {
+    const isCurrent = c.no === current, isDone = c.no < current, locked = c.no > current;
+    const row = el("button", ""); row.type = "button"; row.className = "toc-item" + (isDone ? " done" : isCurrent ? " current" : " locked");
+    if (locked) row.disabled = true;
+    const mark = el("span", isDone ? "✓" : isCurrent ? "▶" : "🔒"); mark.className = "toc-mark";
+    const main = el("span", ""); main.className = "toc-main";
+    const name = el("span", (c.no === 20 ? "Эпилог" : "Глава " + c.no) + (c.no === 20 ? "" : ". ") + c.title); name.className = "toc-name";
+    const pages = el("span", "Страницы " + c.pages); pages.className = "toc-pages";
+    main.append(name, pages); row.append(mark, main);
+    if (isCurrent) row.title = "Вы находитесь здесь";
+    if (!locked) row.onclick = () => {
+      const old = row.nextElementSibling;
+      if (old && old.classList.contains("toc-summary")) { old.remove(); row.setAttribute("aria-expanded", "false"); return; }
+      const summary = el("p", c.sum || (c.no === 20 ? "Эпилог книги." : "Глава " + c.no)); summary.className = "toc-summary";
+      row.after(summary); row.setAttribute("aria-expanded", "true");
+    };
+    toc.append(row);
+  });
+  m.append(toc);
   m.append(el("h3", "Персонажи")); STORY_DATA.meta.cast.forEach(c => m.append(el("p", c[0] + ": " + c[1])));
 });
 
@@ -560,9 +702,11 @@ $("#ldT").textContent = M.title; $("#ldA").textContent = CRED; $("#spT").textCon
 $("#credA").textContent = $("#credG").textContent = M.title + " · " + CRED;
 function snow() {
   const c = $("#snow"), x = c.getContext("2d"), W = c.width = c.parentNode.clientWidth, H = c.height = c.parentNode.clientHeight;
-  const p = Array.from({ length: 90 }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 2 + .5, v: Math.random() * .8 + .3, d: Math.random() * 6 }));
-  (function f() { if (!$("#splash").classList.contains("on")) return; x.clearRect(0, 0, W, H); x.fillStyle = "#dbe4ffaa";
-    p.forEach(q => { q.y += q.v; q.x += Math.sin((q.y + q.d * 50) / 40) * .5 + .3; if (q.y > H) { q.y = -5; q.x = Math.random() * W; } if (q.x > W) q.x = 0; x.beginPath(); x.arc(q.x, q.y, q.r, 0, 6.3); x.fill(); }); requestAnimationFrame(f); })();
+  const p = Array.from({ length: 70 }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.8 + .4, v: Math.random() * .25 + .05, ph: Math.random() * 6.3, sp: Math.random() * .03 + .01, col: Math.random() < .3 ? "214,184,255" : "143,184,255" }));
+  (function f() { if (!$("#splash").classList.contains("on")) return; x.clearRect(0, 0, W, H);
+    p.forEach(q => { q.ph += q.sp; q.y -= q.v; q.x += Math.sin(q.ph) * .15; if (q.y < -4) { q.y = H + 4; q.x = Math.random() * W; }
+      const a = .25 + .75 * Math.abs(Math.sin(q.ph * 1.7)); x.fillStyle = "rgba(" + q.col + "," + a.toFixed(2) + ")"; x.shadowColor = "rgba(" + q.col + ",.9)"; x.shadowBlur = q.r * 5;
+      x.beginPath(); x.arc(q.x, q.y, q.r, 0, 6.3); x.fill(); }); requestAnimationFrame(f); })();
 }
 function boot() {
   const L = STORY_DATA.meta.bootLines; let i = 0;
