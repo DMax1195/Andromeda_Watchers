@@ -240,6 +240,18 @@ body {
   text-shadow: 0 1px 1px #0008;
 }
 #game .m.spk { color: #e1e5e8; }
+/* Абзац появляется целиком, без посимвольного изменения ширины и переносов. */
+@keyframes paragraphInkReveal {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+#game .m.smooth-reveal {
+  animation: paragraphInkReveal .45s ease-out both !important;
+  will-change: opacity, transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  #game .m.smooth-reveal { animation-duration: .01ms !important; }
+}
 #game .m.spk b { color: #b8c9d8; }
 #game > #bot {
   position: relative;
@@ -684,29 +696,18 @@ function draw(m, emptyText = false) {
   return { element: d, textNode };
 }
 function add(k, t, bad, x) { const m = { k, t, bad }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; } st.chat.push(m); if (st.chat.length > CHAT_MAX) st.chat.splice(0, st.chat.length - CHAT_MAX); draw(m); const cb = $("#chat"); while (cb.children.length > CHAT_MAX) cb.firstChild.remove(); save(); }
-const keyTick = () => { if (!cfg.sound) return; tone(1650, .012, "square", .006); };
 async function addTyped(k, t, bad, x, my) {
   const m = { k, t, bad }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; }
   st.chat.push(m); if (st.chat.length > CHAT_MAX) st.chat.splice(0, st.chat.length - CHAT_MAX);
-  const rendered = draw(m, true), cb = $("#chat");
+  // Вставляем весь абзац сразу: геометрия и переносы строк не меняются во время анимации.
+  const rendered = draw(m, false), cb = $("#chat");
   while (cb.children.length > CHAT_MAX) cb.firstChild.remove();
+  if (rendered.element && (k === "nar" || k === "spk")) {
+    rendered.element.classList.add("smooth-reveal");
+  }
   save();
-  const full = k === "spk" ? t.replace(SPEECH, "") : t;
-  if (!rendered.textNode || !full) { if (rendered.textNode) rendered.textNode.nodeValue = full; return; }
-  let pos = 0, finished = false, timer = null;
-  const finish = () => { if (finished) return; finished = true; if (timer) clearInterval(timer); rendered.textNode.nodeValue = full; rendered.element.classList.remove("typing"); cb.removeEventListener("click", onTap); cb.scrollTop = cb.scrollHeight; };
-  const onTap = e => { if (rendered.element.contains(e.target)) { e.stopPropagation(); finish(); } };
-  rendered.element.classList.add("typing"); cb.addEventListener("click", onTap);
-  const delay = st.mode === "fast" ? 5 : 21;
-  timer = setInterval(() => {
-    if (my !== run) { finish(); return; }
-    pos++; rendered.textNode.nodeValue = full.slice(0, pos);
-    if (pos % (st.mode === "fast" ? 7 : 5) === 0) keyTick();
-    if (pos >= full.length) finish();
-    else if (pos % 4 === 0) cb.scrollTop = cb.scrollHeight;
-  }, delay);
-  while (!finished && my === run) await sleep(20);
-  if (!finished) finish();
+  // CSS проявляет готовый текст за 450 мс; следующий абзац выводится после завершения эффекта.
+  await sleep(450);
 }
 /* --- счётчик глав и страниц: читает page из текущего узла STORY_DATA --- */
 function pgInfo() {
