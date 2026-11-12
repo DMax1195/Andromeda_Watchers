@@ -43,6 +43,17 @@ input{width:100%;font:inherit;color:var(--tx);background:var(--pn);border:1px so
 .journal-note{padding:7px 9px;border-left:2px solid var(--ln);background:#090d19;color:var(--tx)!important;font-size:12px;line-height:1.5;border-radius:0 6px 6px 0}.journal-note-new{border-left-color:var(--am);background:#171329;color:#e5d9ff!important}
 .toc-legend{font-size:11px;color:var(--dim);line-height:1.7}
 
+.dossier-list{display:flex;flex-direction:column;gap:8px;margin:0 0 4px}
+.dossier-card{padding:11px 12px;border:1px solid #26304b;border-left:2px solid #6f91c9;border-radius:8px;background:linear-gradient(145deg,#111829,#0a101d);display:flex;flex-direction:column;gap:5px}
+.dossier-card .dossier-name{color:#dce7ff;font-size:14px;font-weight:700;letter-spacing:.02em}
+.dossier-card .dossier-role{color:#8fa6d2;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.dossier-card .dossier-desc{color:#c4cee4;font:13px/1.55 Lora,Georgia,serif}
+.dossier-facts{display:flex;flex-direction:column;gap:4px;margin-top:3px;padding-top:7px;border-top:1px solid #202a40}
+.dossier-facts:before{content:"ЗАПИСИ ПО ХОДУ ИСТОРИИ";color:#8f9fc2;font:700 9px/1.4 ui-monospace,monospace;letter-spacing:.08em}
+.dossier-fact{margin:0;padding-left:10px;border-left:2px solid #8b79bd;color:#c5b9e8;font-size:11px;line-height:1.45}
+.dossier-hint{padding:8px 10px;border:1px dashed #2a3550;border-radius:7px;color:#8491b5;font:italic 12px/1.5 Lora,Georgia,serif}
+
+
 #loader,#splash,#prologue{align-items:center;justify-content:center;text-align:center;padding:24px;position:relative;overflow:hidden}
 .ld-t{font:700 22px Oswald,Impact,sans-serif;letter-spacing:.35em;color:var(--ac);animation:pulse 1.6s infinite}@keyframes pulse{50%{opacity:.45}}
 .ld-bar{width:70%;height:4px;background:#1a2530;border-radius:2px;overflow:hidden;margin:20px auto 10px}
@@ -604,7 +615,138 @@ const STORY_DATA = {
       epilogue: "Это начало следующей части. Продолжение Главы 2 можно добавить в узлы c02_03 и далее."
     }
   }
+ };
+
+/* Персонажи Журнала открываются только после сюжетного знакомства.
+   Список st.dossiers сохраняется вместе с игровым сохранением. */
+const DOSSIER_DATA = [
+  {
+    id: "aerkhis", name: "Аэ́рхис", role: "Полевой Наблюдатель Вел’Ноктари", initial: true,
+    desc: "Ваш подопечный и спутник. Пришёл из Андромеды изучать Землю; после крушения оказался среди людей и учится понимать их мир.",
+    facts: [
+      { flag: "ПЕРВЫЙ_КОНТАКТ_СЛОВОМ", text: "Сделал первую попытку ответить экипажу на человеческом языке." },
+      { flag: "ОТКРЫЛСЯ_ЛЮДЯМ", text: "Позволил морякам увидеть, что перед ними не обычный человек." },
+      { flag: "СКРЫЛ_ПРАВДУ", text: "Выбрал скрыть настоящее происхождение и сохранить тайну." },
+      { flag: "ЗАВЕРШИЛ_ГЛАВУ_1", text: "Пережил первое испытание на Земле и продолжил путь на «Северном горизонте»." }
+    ]
+  },
+  {
+    id: "liorsaen", name: "Лиор’Саэн", role: "Спутник и хранитель света", initial: true,
+    desc: "Тихий разумный спутник Аэ́рхиса. Его тёмная стеклянная оболочка испещрена светящимися трещинами; он поддерживает Наблюдателя, передаёт образы и влияет на поле вокруг себя.",
+    facts: [
+      { flag: "ДЕРЖАЛ_СВЕТ", text: "Удержал Аэ́рхиса на границе сознания в ледяной воде." },
+      { flag: "ПОЛЕ_ТИШИНЫ", text: "Создал вокруг судна поле искажения, скрывшее аварийный сигнал." },
+      { flag: "РАЗРЯДИЛ_ОБЛОМОК", text: "Потратил часть энергии, чтобы разрядить криогенный обломок." }
+    ]
+  },
+  {
+    id: "brandt", name: "Капитан Брандт", role: "Капитан траулера «Северный горизонт»",
+    desc: "Суровый и ответственный командир. Принимает решения быстро, но не бросает тех, кого его экипаж ещё может спасти.",
+    facts: [
+      { flag: "ДОВЕРИЕ_БРАНДТА", text: "Вы рассказали капитану правду; он начал вам доверять." },
+      { flag: "ЛОЖНЫЙ_СЛЕД", text: "Вы направили радиопеленг по ложному следу, изменив картину происходящего для экипажа." },
+      { flag: "ЛЕГЕНДА_ОБ_АППАРАТЕ", text: "Капитан услышал версию о крушении экспериментального аппарата." },
+      { flag: "СОЮЗ_С_КАПИТАНОМ", text: "Капитан стал вашим союзником и готов учитывать ваши предупреждения." }
+    ]
+  },
+  {
+    id: "holger", name: "Хольгер", role: "Боцман «Северного горизонта»",
+    desc: "Крепкий, надёжный и добросердечный боцман. Следит за палубной командой и первым приходит туда, где требуется физическая сила и выдержка.",
+    facts: [
+      { flag: "СПАС_КОРАБЛЬ_С_ХОЛЬГЕРОМ", text: "Вы вместе с Хольгером помогли спасти корабль во время аварии." },
+      { flag: "ХОЛЬГЕР_ПОМОГАЕТ", text: "Хольгер помогает вам освоиться на судне." }
+    ]
+  },
+  {
+    id: "klim", name: "Клим", role: "Матрос «Северного горизонта»",
+    desc: "Матрос траулера. Немногословен и надёжен; одним из первых заметил, насколько необычны спасённые из океана незнакомцы.",
+    facts: []
+  },
+  {
+    id: "ingrid", name: "Ингрид Вальк", role: "Судовой врач",
+    desc: "Высокая женщина с собранными светлыми волосами и усталыми серыми глазами. Внимательна к пациентам, требовательна к порядку и замечает детали, которые другие пропускают.",
+    facts: [
+      { flag: "ДОВЕРИЕ_ВРАЧА", text: "Ингрид доверяет вам и готова помогать." },
+      { flag: "ИНГРИД_ЗАМЕТИЛА", text: "Она заметила в свете Лиор’Саэна нечто, чему пока не нашла объяснения." },
+      { flag: "УЧИТСЯ_У_ИНГРИД", text: "Вы начали учиться у Ингрид Вальк и перенимать её медицинские знания." }
+    ]
+  },
+  {
+    id: "theo", name: "Тео", role: "Юнга и помощник механика",
+    desc: "Любознательный парень в замасленном комбинезоне. Его интересуют механизмы, неисправности и всё необычное, что можно изучить или починить.",
+    facts: [
+      { flag: "ИНТЕРЕС_ТЕО", text: "Тео заинтересовался устройством Лиор’Саэна." },
+      { flag: "СОЮЗ_С_ТЕО", text: "Вы вместе с Тео спасли машинное отделение." },
+      { flag: "ТЕО_ДОВЕРЯЕТ", text: "Тео доверяет вам и готов помочь." },
+      { flag: "ИЗУЧАЕТ_ТЕХНИКУ", text: "Вы продолжили изучать земную технику вместе с Тео." }
+    ]
+  },
+  {
+    id: "marta", name: "Марта", role: "Кок «Северного горизонта»",
+    desc: "Кок судна. Считает горячую еду первым лекарством и умеет поддержать экипаж простыми, но своевременными заботами.",
+    facts: [
+      { flag: "ДОВЕРИЕ_МАРТЫ", text: "Марта приняла вас как своих." }
+    ]
+  },
+  {
+    id: "sven", name: "Свен Линд", role: "Радист «Северного горизонта»",
+    desc: "Радист, внимательно следящий за эфиром. Первым заметил повторяющийся сигнал и старается отделить полезные данные от помех.",
+    facts: [
+      { flag: "ПОМОГ_СВЕНУ", text: "Вы помогли Свену перенастроить радиосвязь." },
+      { flag: "СВЕН_СОХРАНИЛ_СИГНАЛ", text: "Свен сохранил запись загадочного сигнала." },
+      { flag: "РАСШИФРОВАЛ_ИМПУЛЬС", text: "Вы распознали структуру неизвестного импульса, поступившего по радиоканалу." }
+    ]
+  },
+  {
+    id: "olaf", name: "Олаф", role: "Штурман «Северного горизонта»",
+    desc: "Штурман судна. Работает с курсом и навигационными данными, оценивает направление и помогает капитану ориентироваться в сложной обстановке.",
+    facts: [
+      { flag: "НАШЕЛ_НАПРАВЛЕНИЕ", text: "Вы определили направление, откуда пришёл неизвестный сигнал." },
+      { flag: "СИГНАЛ_В_ПАМЯТИ", text: "Вы сохранили последовательность неизвестного сигнала для дальнейшего изучения." },
+      { flag: "ОСТАЛСЯ_НА_ВАХТЕ", text: "Вы остались на ночной вахте и продолжили наблюдать за сигналом." },
+      { flag: "ИЗУЧАЕТ_СИГНАЛ", text: "Исследование сигнала продолжилось уже с учётом навигационных данных." }
+    ]
+  },
+
+];
+const DOSSIER_UNLOCKS = {
+  c01_01: ["brandt", "holger", "klim"],
+  c01_02: ["ingrid", "theo"],
+  c01_03: ["marta"],
+  c01_04: ["sven", "olaf"]
 };
+const DOSSIER_LEGACY_STAGES = {
+  c01_01: 1, c01_02: 2, c01_03: 3, c01_04: 4, c01_05: 5, c01_06: 6,
+  c02_01: 6, c02_02: 6
+};
+function ensureDossierList() {
+  if (!Array.isArray(st.dossiers)) st.dossiers = ["aerkhis", "liorsaen"];
+  ["aerkhis", "liorsaen"].forEach(id => { if (!st.dossiers.includes(id)) st.dossiers.push(id); });
+}
+function addDossierIds(ids) {
+  let changed = false;
+  (ids || []).forEach(id => { if (DOSSIER_DATA.some(d => d.id === id) && !st.dossiers.includes(id)) { st.dossiers.push(id); changed = true; } });
+  return changed;
+}
+function unlockDossiersForNode(nodeId) {
+  ensureDossierList();
+  if (addDossierIds(DOSSIER_UNLOCKS[nodeId])) save();
+}
+function migrateDossiersForLegacySave() {
+  const hadDossierState = Array.isArray(st.dossiers);
+  ensureDossierList();
+  if (!hadDossierState) {
+    const stage = DOSSIER_LEGACY_STAGES[st.node] || 0;
+    const pageMatch = String(st.page || "").match(/\d+/);
+    const page = pageMatch ? Number(pageMatch[0]) : 0;
+    const reached = Math.max(stage, page >= 17 ? 4 : page >= 13 ? 3 : page >= 9 ? 2 : page >= 5 ? 1 : 0);
+    if (reached >= 1) addDossierIds(["brandt", "holger", "klim"]);
+    if (reached >= 2) addDossierIds(["ingrid", "theo"]);
+    if (reached >= 3) addDossierIds(["marta"]);
+    if (reached >= 4) addDossierIds(["sven", "olaf"]);
+  }
+  save();
+}
 
 /* ===================== ДВИЖОК ===================== */
 const SK = ["Наблюдение","Интуиция","Память","Эмпатия","Язык","Навигация","Выживание","Ремесло","Скрытность","Медицина"];
@@ -650,7 +792,7 @@ $("#snd").onclick = e => { cfg.sound = !cfg.sound; e.target.textContent = "Зв�
 $("#go").onclick = () => {
   sfx.click();
   const h = sel === "custom" ? { name: $("#nm").value.trim(), skills: [...picked], items: STORY_DATA.meta.customHero.items, ammo: STORY_DATA.meta.customHero.ammo } : STORY_DATA.heroes.find(x => x.id === sel);
-  st = { hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], flags: [], journalSeen: [], chat: [], queue: [], pend: [], node: null, waitUntil: 0, waitDone: false, dead: false };
+  st = { hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, waitUntil: 0, waitDone: false, dead: false };
   $("#chat").innerHTML = ""; show("game"); status(); enter(STORY_DATA.meta.start);
 };
 $("#cont").onclick = () => {
@@ -662,6 +804,7 @@ $("#cont").onclick = () => {
   st.chat = st.chat.filter(m => !(m && m.k === "sys" && /\[ЖУРНАЛ:\s*новая заметка\]/.test(m.t || "")));
   cfg.sound = st.sound; cfg.mode = st.mode;
   { const cn = STORY_DATA.nodes[st.node]; if (cn && cn.page) { const pm = String(cn.page).match(/\d+/); st.page = pm ? Number(pm[0]) : st.page; } }
+  migrateDossiersForLegacySave();
 
   // Совместимость со старыми сохранениями: включаем постраничное чтение
   // для оставшейся очереди, если в сохранении ещё нет параметров пагинации.
@@ -756,7 +899,7 @@ function res(k, d) {
 function give(it) { if (st.inv.length < MAXINV) { st.inv.push(it); add("sys", "[ИНВЕНТАРЬ: Получен «" + it + "»]"); } else { st.pend.push(it); save(); } status(); }
 function enter(id) {
   const n = STORY_DATA.nodes[id]; if (!n) { add("sys", "[ОШИБКА: нет узла " + id + "]", true); return; }
-  st.node = id; if (n.page) { const pm = String(n.page).match(/\d+/); st.page = pm ? Number(pm[0]) : st.page; } else if (n.chapter) st.page = parseInt(n.chapter.pages); st.stats.steps++; st.waitDone = false; st.waitUntil = 0; const o = n.onEnter || {};
+  st.node = id; unlockDossiersForNode(id); if (n.page) { const pm = String(n.page).match(/\d+/); st.page = pm ? Number(pm[0]) : st.page; } else if (n.chapter) st.page = parseInt(n.chapter.pages); st.stats.steps++; st.waitDone = false; st.waitUntil = 0; const o = n.onEnter || {};
   o.hp && res("hp", o.hp); o.o2 && res("o2", o.o2); o.energy && res("en", o.energy); o.ammo && res("ammo", o.ammo);
   const dr = n.drain; if (dr) { dr.energy && res("en", dr.energy); dr.o2 && res("o2", dr.o2); if (st.en <= 0 && !st.dead) { add("sys", STORY_DATA.meta.coldMsg, true); res("hp", -2); } }
   (o.removeItems || []).forEach(it => { const i = st.inv.indexOf(it); if (i >= 0) { st.inv.splice(i, 1); add("sys", "[ИНВЕНТАРЬ: Утрачен «" + it + "»]"); } });
@@ -925,6 +1068,7 @@ $("#bMode").onclick = () => { st.mode = st.mode === "fast" ? "real" : "fast"; mo
 function openJournal() {
   if (!st) return;
   if (!Array.isArray(st.journalSeen)) st.journalSeen = [];
+  migrateDossiersForLegacySave();
   const notes = st.flags.filter(f => STORY_DATA.meta.flagNames[f]);
   const unseen = new Set(notes.filter(f => !st.journalSeen.includes(f)));
   modal(m => {
@@ -964,8 +1108,29 @@ function openJournal() {
       toc.append(row);
     });
     m.append(toc);
-    m.append(el("h3", "Персонажи"));
-    STORY_DATA.meta.cast.forEach(c => m.append(el("p", c[0] + ": " + c[1])));
+    m.append(el("h3", "Персонажи / Досье"));
+    ensureDossierList();
+    const dossierList = el("div", ""); dossierList.className = "dossier-list";
+    const unlockedDossiers = DOSSIER_DATA.filter(d => st.dossiers.includes(d.id));
+    unlockedDossiers.forEach(d => {
+      const card = el("section", ""); card.className = "dossier-card";
+      const name = el("div", d.name); name.className = "dossier-name";
+      const role = el("div", d.role); role.className = "dossier-role";
+      const desc = el("div", d.desc); desc.className = "dossier-desc";
+      card.append(name, role, desc);
+      const facts = d.facts.filter(f => st.flags.includes(f.flag));
+      if (facts.length) {
+        const factBox = el("div", ""); factBox.className = "dossier-facts";
+        facts.forEach(f => { const p = el("p", "✦ " + f.text); p.className = "dossier-fact"; factBox.append(p); });
+        card.append(factBox);
+      }
+      dossierList.append(card);
+    });
+    m.append(dossierList);
+    if (unlockedDossiers.length <= 2) {
+      const hint = el("p", "Новые досье будут открываться по мере знакомства с экипажем.");
+      hint.className = "dossier-hint"; m.append(hint);
+    }
   });
   st.journalSeen = [...new Set([...st.journalSeen, ...notes])];
   save(); updateJournalBadge();
