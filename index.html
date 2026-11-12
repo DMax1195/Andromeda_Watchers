@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ВЕЛ’НОКТАРИ — авторская книга-игра</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"><style>
+:root{--bg:#05060e;--pn:#0c0f1d;--ln:#1c2140;--tx:#dbe4ff;--dim:#7b86b5;--ac:#8fb8ff;--rd:#ff6b8b;--am:#c9a8ff;--bl:#6ee7ff}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--tx);font:15px/1.45 ui-monospace,Menlo,Consolas,monospace;width:min(100vw,calc(100dvh*9/16));margin:0 auto;display:flex;flex-direction:column}
+.scr{display:none;flex:1;min-height:0;flex-direction:column}.scr.on{display:flex}
+button{font:inherit;color:var(--tx);background:var(--pn);border:1px solid var(--ln);border-radius:8px;padding:10px 12px;cursor:pointer;text-align:left}
+button:active{background:#16222e}button:disabled{opacity:.4;cursor:not-allowed}button.sel{border-color:var(--ac);color:var(--ac)}
+#setup{padding:16px;overflow:auto;gap:8px}h1{font-size:20px;color:var(--ac);margin:0}h2{font-size:13px;color:var(--dim);text-transform:uppercase;margin:14px 0 4px}
+.hero{display:block;width:100%;margin-bottom:6px}.hero small{display:block;color:var(--dim);font-size:12px;margin-top:2px}.hero.sel small{color:var(--tx)}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1 1 auto;text-align:center}
+input{width:100%;font:inherit;color:var(--tx);background:var(--pn);border:1px solid var(--ln);border-radius:8px;padding:10px}
+#go{width:100%;margin-top:14px;background:var(--ac);color:#07102a;font-weight:700;border:0;text-align:center}
+#top{padding:calc(8px + env(safe-area-inset-top,0px)) 10px 8px;background:var(--pn);border-bottom:1px solid var(--ln)}
+.tl{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--dim)}.tl+.tl{margin-top:6px}
+.bar{flex:1;height:9px;background:#1a2530;border-radius:5px;overflow:hidden}.bar i{display:block;height:100%;transition:width .4s}
+.tl b{min-width:70px;color:var(--tx);font-weight:400}.tl button{padding:5px 9px;font-size:13px}
+#chat{flex:1;overflow:auto;padding:12px 10px;display:flex;flex-direction:column;gap:8px}
+.m{max-width:82%;padding:8px 11px;border-radius:12px;white-space:pre-wrap;animation:f .25s}@keyframes f{from{opacity:0;transform:translateY(6px)}}
+.m.in{background:var(--pn);border:1px solid var(--ln);align-self:flex-start;border-bottom-left-radius:3px}.m.in b{display:block;font-size:11px;color:var(--ac)}
+.m.out{background:#27306b;align-self:flex-end;border-bottom-right-radius:3px}
+.m.sys{align-self:center;max-width:95%;font-size:12px;color:var(--am);text-align:center;padding:0}.m.sys.bad{color:var(--rd)}
+#typ{color:var(--dim);font-size:12px;padding:0 12px 4px;height:20px}
+#bot{padding:8px 10px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--ln);background:var(--pn);display:flex;flex-direction:column;gap:6px;min-height:64px}
+#wait{text-align:center;color:var(--am);padding:12px 0}.ch small{color:var(--dim)}
+#modal{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;padding:16px;z-index:9}#modal.on{display:flex}
+#mb{background:var(--pn);border:1px solid var(--ln);border-radius:12px;padding:14px;width:100%;max-width:460px;max-height:80vh;overflow:auto;display:flex;flex-direction:column;gap:8px}
+#mb h3{margin:0;color:var(--ac);font-size:15px}#mb p{margin:0;color:var(--dim)}#mb.dead h3{color:var(--rd);font-size:18px}
+
+#loader,#splash,#prologue{align-items:center;justify-content:center;text-align:center;padding:24px;position:relative;overflow:hidden}
+.ld-t{font:700 22px Oswald,Impact,sans-serif;letter-spacing:.35em;color:var(--ac);animation:pulse 1.6s infinite}@keyframes pulse{50%{opacity:.45}}
+.ld-bar{width:70%;height:4px;background:#1a2530;border-radius:2px;overflow:hidden;margin:20px auto 10px}
+.ld-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#8fb8ff,#d6b8ff);transition:width .5s}
+#ldlog{color:var(--dim);font-size:12px;height:18px}
+.cred{color:var(--dim);font-size:11px;letter-spacing:.08em;text-align:center;padding:4px 8px}
+#snow{position:absolute;inset:0;width:100%;height:100%}
+.in{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:14px;width:100%}
+.kick{font:500 12px Oswald,sans-serif;letter-spacing:.5em;color:var(--am)}
+.ttl{font:700 clamp(34px,11.5vw,72px)/1 Oswald,Impact,sans-serif;letter-spacing:.06em;margin:0;background:linear-gradient(180deg,#ffffff,#b9c8ff 50%,#7a5cff);-webkit-background-clip:text;background-clip:text;color:transparent;animation:rise 1.8s ease-out both,glow 4s ease-in-out 1.8s infinite}
+@keyframes rise{from{opacity:0;transform:translateY(24px) scale(.96);letter-spacing:.35em}}@keyframes glow{50%{filter:drop-shadow(0 0 16px #8fb8ffaa)}}
+.sub{font:italic 17px Lora,Georgia,serif;color:#9fb6c6;animation:fi 2s 1s both}@keyframes fi{from{opacity:0}}
+button.big{background:var(--ac);color:#07102a;font-weight:700;border:0;text-align:center;width:100%;max-width:320px;letter-spacing:.1em;animation:fi 2s 1.6s both}
+#pr{max-width:440px}.pp{font:italic 17px/1.7 Lora,Georgia,serif;color:#c3d6e2;opacity:0;animation:fi 1.4s forwards;margin:0 0 14px}
+#prGo.pp{font:700 15px Oswald,sans-serif;font-style:normal;color:#07102a}
+.m.nar{align-self:stretch;max-width:100%;background:none;border:0;border-left:2px solid var(--ln);border-radius:0;font:italic 15px/1.6 Lora,Georgia,serif;color:#9fb6c6;padding:2px 10px}
+#final{padding:16px;overflow:auto}#fn{display:flex;flex-direction:column;gap:6px}
+#fn h3{font:600 13px Oswald,sans-serif;letter-spacing:.2em;color:var(--dim);text-transform:uppercase;margin:14px 0 2px}
+.fh{font:700 30px/1.15 Oswald,Impact,sans-serif;color:var(--ac);margin:0}.fh.bad{color:var(--rd)}.fs{color:var(--am);font-size:13px}
+.fe{font:italic 16px/1.7 Lora,Georgia,serif;color:#c3d6e2;margin:8px 0}
+.card{background:var(--pn);border:1px solid var(--ln);border-radius:10px;padding:8px 12px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px dashed var(--ln)}.kv:last-child{border:0}.kv b{font-weight:400;text-align:right}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chips span{border:1px solid var(--ln);border-radius:14px;padding:3px 10px;font-size:12px;color:var(--dim)}
+#chs{display:flex;flex-direction:column;gap:6px;overflow-y:auto;overscroll-behavior:contain;scroll-snap-type:y proximity;scrollbar-width:thin;scrollbar-color:var(--ac) transparent}
+#chs::-webkit-scrollbar{width:6px}#chs::-webkit-scrollbar-thumb{background:var(--ac);border-radius:3px}
+#chs button{flex:0 0 auto;scroll-snap-align:start;padding:8px 10px;font-size:14px;line-height:1.35}
+#chh{font-size:11px;color:var(--am);text-align:center;letter-spacing:.05em}
+html{background:#02030a}body{height:100dvh;overflow:hidden}
+@media (min-aspect-ratio:3/4){body{border-left:1px solid var(--ln);border-right:1px solid var(--ln)}}
+#splash,#prologue{overflow-y:auto}.blurb{font:italic 14px/1.55 Lora,Georgia,serif;color:#b8c4ea;max-width:400px;animation:fi 2s 1.2s both}
+.m.hd{align-self:stretch;max-width:100%;text-align:center;padding:18px 0 8px;animation:fi 1s}.m.hd small{display:block;letter-spacing:.3em;color:var(--am);font-size:11px}
+.m.hd h4{font:700 26px/1.15 Oswald,Impact,sans-serif;margin:6px 0 0;color:var(--tx);letter-spacing:.08em;text-transform:uppercase}
+.m.sep{align-self:center;color:var(--dim);letter-spacing:.6em;font-size:14px;padding:6px 0}
+</style></head><body>
+
+<div id="loader" class="scr on"><div class="ld-t" id="ldT"></div><div class="ld-bar"><i id="ldbar"></i></div><div id="ldlog"></div><div class="cred" id="ldA"></div></div>
+<div id="splash" class="scr"><canvas id="snow"></canvas><div class="in"><div class="kick">АВТОРСКАЯ КНИГА-ИГРА</div><h1 class="ttl" id="spT"></h1><div class="sub" id="spS"></div><div class="blurb" id="spB"></div><div class="cred" id="spF"></div><button id="spGo" class="big">НАЧАТЬ ИГРУ</button><button id="spCont" class="big" style="display:none;background:var(--pn);color:var(--tx);border:1px solid var(--ln)">ПРОДОЛЖИТЬ</button><div class="cred" id="spC"></div><div class="cred" id="spA"></div></div></div>
+<div id="prologue" class="scr"><div class="in"><div class="kick">ПРОЛОГ</div><div id="pr"></div><button id="prGo" class="big pp">ВЫБРАТЬ ПУТЬ</button></div></div>
+<div id="setup" class="scr">
+ <h1>ВЫБОР ПУТИ</h1><div style="color:var(--dim)">Вы Лиор’Саэн, тихий спутник, чей свет ведёт Аэ́рхиса. Выберите путь Наблюдателя.</div><div class="cred" id="credA"></div><div class="cred" id="ucA"></div>
+ <h2>Путь Наблюдателя</h2><div id="heroes"></div>
+ <div id="cust" hidden><h2>Позывной</h2><input id="nm" maxlength="16" placeholder="Имя Наблюдателя">
+  <h2>Навыки: ровно 4 из 10 (<span id="cnt">0</span>/4)</h2><div class="row" id="sk"></div></div>
+ <h2>Темп</h2><div class="row"><button id="mReal" class="sel">Реалистичный</button><button id="mFast">Быстрый</button></div>
+ <h2>Звук терминала</h2><div class="row"><button id="snd" class="sel">Звук: вкл</button></div>
+ <button id="go" disabled>ВОЙТИ В КАНАЛ СВЕТА</button>
+ <button id="cont" style="width:100%;margin-top:6px;display:none">Продолжить сохранённую игру</button>
+</div>
+
+<div id="game" class="scr">
+ <div id="top">
+  <div class="tl"><b id="hpt"></b><div class="bar"><i id="hpb" style="background:var(--ac)"></i></div><button id="bMode"></button><button id="bInv">🎒 <span id="ic"></span></button><button id="bLog">📓</button></div>
+  <div class="tl"><b id="o2t"></b><div class="bar"><i id="o2b" style="background:var(--bl)"></i></div><b id="ent"></b><div class="bar"><i id="enb" style="background:var(--am)"></i></div><b id="am" style="min-width:56px"></b></div>
+ </div>
+ <div class="cred" id="credG"></div><div id="chat"></div><div id="typ"></div>
+ <div id="bot"><div id="wait" hidden></div><div id="chh" hidden></div><div id="chs"></div></div>
+</div>
+<div id="final" class="scr"><div id="fn"></div></div>
+<div id="modal"><div id="mb"></div></div>
+
+<script>
+/* ============================================================
+   STORY_DATA — сюда дописываете героев и сюжет.
+   heroes[]  : { id, name, desc, skills:[4], items:[], ammo }
+   meta      : start, customHero {items, ammo}, flagNames {флаг: подпись в Журнале}
+   nodes[id] = {
+     messages: [ "реплика" | { t:"реплика", skill:"Навык", item:"Предмет", flag:"флаг", noFlag:"флаг" } ],
+        // объект показывается только если у героя есть навык / предмет / флаг. {hero} = позывной героя
+     onEnter: { hp, o2, energy, ammo (числа ±), addItems:[], removeItems:[], addFlags:[], removeFlags:[] },
+     waitSeconds, waitText,           // таймер после реплик
+     choices: [{ text, goto, reqSkill, reqItem, reqAmmo, reqFlag, forbidFlag, hpCost, o2Cost, energyCost }]
+   }
+   Нет choices — концовка. reqAmmo тратит патроны. Условия по флагам скрывают кнопку, прочие блокируют её.
+   Гибель: HP или Кислород = 0.
+   ============================================================ */
+const STORY_DATA = {
+  /* Схема узла: messages [строка | {n:"абзац рассказчика"} | {t, skill, item, flag, noFlag}], onEnter {hp,o2,energy,ammo,addItems,removeItems,addFlags,removeFlags},
+     drain {energy,o2}, waitSeconds+waitText, isEnding+endingTitle+epilogue, choices [{text,goto,reqSkill,reqItem,useItem,reqAmmo,reqFlag,forbidFlag,hpCost,o2Cost,energyCost,addItems,addFlags}].
+     Ресурсы в этой книге: hp = Жизненная сила, o2 = Ясность, energy = Свет Лиор’Саэна, ammo = Слова. */
+  meta: {
+    title: "ВЕЛ’НОКТАРИ", sub: "Книга-игра о тех, кто решил остаться",
+    blurb: "Два Наблюдателя из галактики Андромеды, Аэ́рхис и его стеклянный спутник Лиор’Саэн, чей свет видит будущее, разбивают корабль о земной океан. Люди, которых они прилетели изучать, спасают их и принимают как своих. Но у каждого дома есть тайны, а у каждого света есть цена. Вы Лиор’Саэн: вы не держите оружия, зато можете подсказывать, светить и удерживать Аэ́рхиса на границе сознания. Каждый ваш выбор меняет судьбу героя, людей вокруг и двух миров.",
+    facts: "Авторская книга-игра · 19 глав и эпилог · 377 страниц (в работе)",
+    chapters: [
+      { no: 1, title: "Падение", pages: "5–28", ready: true, sum: "Гибель корабля, ледяной океан и первые руки людей." },
+      { no: 2, title: "Люди из океана", pages: "28–47", ready: false, sum: "Палуба «Морской ласточки», капитан Ольсен, первые слова." },
+      { no: 3, title: "Язык солёных ветров", pages: "47–60", ready: false, sum: "Учёба у Брюна, Тео и Ингрид; шторм и спасение матроса." },
+      { no: 4, title: "Серый кит", pages: "60–73", ready: false, sum: "Порт, таверна Нины, маленькая Мири." },
+      { no: 5, title: "Слепое пятно", pages: "73–90", ready: false, sum: "Инспектор Оскар замечает странный свет." },
+      { no: 6, title: "Что видит свет", pages: "90–113", ready: false, sum: "Свет Лиор’Саэна растёт, Ингрид ищет объяснение." },
+      { no: 7, title: "Ночь над гаванью", pages: "113–138", ready: false, sum: "Буря, затмение огней, первый страх города." },
+      { no: 8, title: "Чужие среди своих", pages: "138–156", ready: false, sum: "Слухи, донос Лукаса, трещина в доверии." },
+      { no: 9, title: "Огонь на складах", pages: "156–176", ready: false, sum: "Пожар в порту и цена спасения." },
+      { no: 10, title: "Тишина после огня", pages: "176–188", ready: false, sum: "Разговор с Ольсен, правда выходит наружу." },
+      { no: 11, title: "Те, кто ищет", pages: "188–213", ready: false, sum: "Бюро аномалий и агент Роуэн Кейн." },
+      { no: 12, title: "Побег из порта", pages: "213–226", ready: false, sum: "Ночь погони, уход из города." },
+      { no: 13, title: "Горный перевал", pages: "226–240", ready: false, sum: "Снег, голод, Лиор’Саэн слабеет." },
+      { no: 14, title: "Монастырь на ветру", pages: "240–261", ready: false, sum: "Сестра Агата и древние огни." },
+      { no: 15, title: "Зов Андромеды", pages: "261–291", ready: false, sum: "Приход Стража, правда о Вел’Ноктари." },
+      { no: 16, title: "Испытание тишиной", pages: "291–307", ready: false, sum: "Страж проверяет, ради чего вы светите." },
+      { no: 17, title: "Цена возвращения", pages: "307–324", ready: false, sum: "Бюро смыкает кольцо, нужна жертва." },
+      { no: 18, title: "Мост", pages: "324–343", ready: false, sum: "Союзники собираются на берегу." },
+      { no: 19, title: "Рассвет над океаном", pages: "343–371", ready: false, sum: "Последний выбор между мирами." },
+      { no: 20, title: "Свет над берегом", pages: "372–377", ready: false, sum: "Эпилог." }
+    ],
+    cast: [
+      ["Аэ́рхис", "Полевой Наблюдатель Вел’Ноктари, ваш подопечный и друг."], ["Эхо-7", "Корабельный разум, шутит в самые плохие минуты."],
+      ["Маргит Ольсен", "Капитан «Морской ласточки», суровая и справедливая."], ["Брюн", "Старый боцман, первым протянул руку."],
+      ["Ингрид Вальк", "Судовой врач, видит больше, чем говорит."], ["Тео", "Юнга пятнадцати лет, не боится света."],
+      ["Лукас", "Радист, мечтающий услышать голос звёзд."], ["Нина", "Хозяйка таверны «Серый кит», сестра Брюна."],
+      ["Мири", "Дочь Нины, семи лет."], ["Оскар Лин", "Инспектор порта, ищет правду."],
+      ["Роуэн Кейн", "Агент Бюро аномалий, холодный и упорный."], ["Сестра Агата", "Хранительница горного монастыря, помнит прошлые огни."],
+      ["Страж Ири’Тан", "Посланник Вел’Ноктари, пришедший за вами."]
+    ], author: "Автор — Аэ́рхис Ваэл’Нокт",
+    labels: { hp: "Жизненная сила", o2: "Ясность", en: "Свет Лиор’Саэна", ammo: "Слова", short: { hp: "ЖИЗНЬ", o2: "ЯСН", en: "СВЕТ", ammo: "СЛОВА" }, tag: { hp: "жизни", o2: "ясности", en: "света", ammo: "слов" } },
+    deathTitle: "Свет погас: Гибель Наблюдателя", deathMsg: { hp: "жизненная сила иссякла", o2: "ясность утрачена" }, coldMsg: "[ЛИОР’САЭН: свет угас, холод проникает внутрь]",
+    bootLines: ["Настройка канала света с Лиор’Саэном...", "Слушаю тишину между звёзд...", "Ищу голос Аэ́рхиса...", "Канал открыт."],
+    prologue: [
+      "Я родился в галактике Андромеды, среди холодного света далёких звёзд, где тьма не пугает, а учит слушать. С самого начала во мне жила мечта: увидеть Землю не через архивы, а своими глазами.",
+      "Со мной в путь отправился Лиор’Саэн, тихий и внимательный, созданный для наблюдения, памяти и поддержки. Его тёмная, стеклянная поверхность пронизана светящимися трещинами, и рядом с ним пространство становится тише.",
+      "Но Вселенная не уважает даже самые точные планы. Наш корабль потерпел крушение на орбите Земли, и мы рухнули в бездну океана, где, по всем прогнозам, всё должно было закончиться.",
+      "Вы Лиор’Саэн. Вы не можете взять Аэ́рхиса за руку, но можете светить, подсказывать и удерживать его на границе сознания. Каждое ваше слово станет его выбором.",
+      "Эта история ещё не написана. Её предстоит прожить вдвоём."
+    ],
+    endingTotal: 6, deathEnding: "end_05", start: "c01_01", customHero: { items: ["Дневник наблюдателя"], ammo: 4 },
+    pace: { first: [2, 6], msg: [4, 14], narr: [1.5, 3.5] },
+    endings: {
+      end_01: { title: "Часть жизни", epilogue: "Аэ́рхис и Лиор’Саэн остались на Земле не как гости и не как свидетели, а как часть живого мира. Люди приняли их так, будто они всегда были здесь. Иногда по вечерам, когда над портом загораются окна, вам обоим кажется, что это и есть дом." },
+      end_02: { title: "Тихие среди людей", epilogue: "Никто не узнал, откуда они пришли. Аэ́рхис работал в порту, а Лиор’Саэн оставался странной тенью света на его плече. Правда сохранилась только в вашей памяти, и вы оба решили, что этого достаточно." },
+      end_03: { title: "Зов Андромеды", epilogue: "Маяк вспыхнул, и среди звёзд ответил далёкий корабль. Аэ́рхис долго смотрел на землю с орбиты, пока облака не стали совсем маленькими. Вы знали, что часть вас навсегда осталась там, внизу, среди живого света." },
+      end_04: { title: "Новая история", epilogue: "Аэ́рхис написал всё, что с ними случилось: океан, моряков, первый рассвет над Землёй. Эту рукопись назвали сказкой, но кто-то в ней узнал правду. И пока её читают, история Вел’Ноктари не заканчивается." },
+      end_05: { title: "Тишина океана", epilogue: "Океан хранит свои тайны. Где-то в глубине ещё мерцает слабый свет, но никто не придёт его искать." },
+      end_06: { title: "Мост между мирами", epilogue: "Над портом, где когда-то упал чужой свет, теперь горит маяк, видимый и людям, и звёздам. Страж Ири’Тан оставил на Земле тропу, по которой однажды придут другие: не захватчики и не наблюдатели, а гости. Аэ́рхис и Лиор’Саэн стоят на причале и знают, что их история только начинается." }
+    },
+    deathEpilogue: {
+      hp: "Тьма океана сомкнулась, и свет в трещинах Лиор’Саэна медленно угас. Наверху ещё качались чужие огни, но вы больше не могли удержать ни Аэ́рхиса, ни себя.",
+      o2: "Мысли растворились, как соль в воде. Вы забыли, зачем плыли и кого держали, и в ледяной тишине не осталось даже вопроса."
+    },
+    achievements: {
+      "ДЕРЖАЛ_СВЕТ": "Удержал Аэ́рхиса на границе сознания в ледяной тьме океана", "ОТКРЫЛСЯ_ЛЮДЯМ": "Открылся земным морякам и не был отвергнут",
+      "СКРЫЛ_ПРАВДУ": "Скрыл от людей, кто вы на самом деле", "УВИДЕЛ_ЗЕМЛЮ": "Принял Землю не как объект наблюдения, а как жизнь",
+      "ПОДАЛ_СИГНАЛ": "Отправил импульс маяка домой, в Андромеду", "ЭХО_ПОМНИТ": "Сохранил последние слова корабельного разума Эхо-7", "ПОМОГ_ПОРТУ": "Помог порту: сети, огонь, спасённые люди", "ДОМ_У_НИНЫ": "Нашёл дом и друзей в таверне «Серый кит»",
+      "ОСКАР_СОЮЗНИК": "Инспектор Оскар стал союзником, а не охотником", "СТРАЖ_УБЕЖДЁН": "Убедил Стража Ири’Тана не стирать ваши следы", "МОСТ_МЕЖДУ_МИРАМИ": "Договорился со Стражем сделать Землю мостом между мирами"
+    },
+    flagNames: { "ДЕРЖАЛ_СВЕТ": "Вы удержали Аэ́рхиса во тьме океана", "ОТКРЫЛСЯ_ЛЮДЯМ": "Моряки знают, кто вы", "СКРЫЛ_ПРАВДУ": "Вы скрыли правду от людей", "УВИДЕЛ_ЗЕМЛЮ": "Земля изменила ваш свет", "ПОДАЛ_СИГНАЛ": "Маяк послал импульс домой", "ЭХО_ПОМНИТ": "Вы сохранили слова Эхо-7", "ПОМОГ_ПОРТУ": "Вы помогли порту", "ДОМ_У_НИНЫ": "У вас есть дом у Нины", "ОСКАР_СОЮЗНИК": "Оскар на вашей стороне", "СТРАЖ_УБЕЖДЁН": "Страж услышал вас", "МОСТ_МЕЖДУ_МИРАМИ": "Между мирами есть мост" }
+  },
+  items: {
+    "Капля тишины": { o2: 35, hint: "+35% ясности" },
+    "Осколок света": { energy: 40, hint: "+40% света" },
+    "Целебный отвар": { hp: 6, hint: "+6 жизни" }
+  },
+  heroes: [
+    { id: "watcher", name: "Аэ́рхис", path: "Наблюдатель", desc: "Полевой Наблюдатель из рода Вел’Ноктари. Видит то, что другие пропускают.", skills: ["Наблюдение", "Интуиция", "Память", "Эмпатия"], items: ["Дневник наблюдателя"], ammo: 4 },
+    { id: "tracker", name: "Аэ́рхис", path: "Следопыт", desc: "Находит путь там, где нет ни карт, ни звёзд.", skills: ["Навигация", "Выживание", "Ремесло", "Скрытность"], items: ["Спектральный компас"], ammo: 3 },
+    { id: "speaker", name: "Аэ́рхис", path: "Толкователь", desc: "Слышит смысл за словами и умеет быть понятым.", skills: ["Язык", "Эмпатия", "Медицина", "Интуиция"], items: ["Кристалл речи"], ammo: 6 }
+  ],
+  nodes: {
+    c01_01: {
+      chapter: { no: 1, title: "Падение", pages: "5–28" },
+      messages: [
+        { n: "Если бы звёзды умели говорить, они сказали бы, что падение начинается задолго до удара. Оно начинается в тот миг, когда кто-то из тех, кто смотрит, решает подойти ближе. Так началось и это: в ночь, когда корабль «Эхо» сорвался с орбиты Земли и пошёл вниз, прожигая облака, как раскалённая игла." },
+        { n: "Вы Лиор’Саэн. У вас нет голоса, как у людей, и рук, как у людей. У вас есть свет: тонкие линии в трещинах тёмного стекла, и умение видеть то, чего ещё нет. Направления, вероятности, нити, которые станут будущим или оборвутся. Сейчас почти все нити обрываются в одной точке." },
+        { from: "Эхо-7", t: "Внимание, экипаж. Потеряно управление стабилизаторами. До контакта с поверхностью сорок одна секунда." },
+        "Лиор! Ты здесь? Скажи мне, что ты здесь!",
+        { from: "Эхо-7", t: "Рекомендация первая: пристегнуться. Рекомендация вторая: не паниковать. Вторая, признаю, выполняется хуже." },
+        "Эхо, перестань шутить, мне и так страшно!",
+        { sep: true },
+        { n: "Корабельный разум «Эхо-7» всегда шутил в самые скверные минуты. Аэ́рхис давно перестал считать это недостатком: так Эхо удерживало их обоих на краю привычного. Сейчас голос звучал ровно, но вы видели в нём тонкую дрожь, которую слышали только вы." },
+        { skill: "Интуиция", t: "Ты показываешь мне вспышку на воде... Это выход?" },
+        "Подскажи, что делать. Я пойду за твоим светом."
+      ],
+      choices: [
+        { text: "Подсказать: пристегнуться к креслу и принять удар", hpCost: 4, goto: "c01_02" },
+        { text: "Подсказать: направить корабль в светлую полосу воды", reqSkill: "Навигация", energyCost: 10, goto: "c01_02" },
+        { text: "Окутать Аэ́рхиса своим светом перед ударом", reqSkill: "Интуиция", energyCost: 10, goto: "c01_02" }
+      ]
+    },
+    c01_02: {
+      messages: [
+        { n: "Удар был беззвучным: так бывает, когда звук не успевает за событием. Корабль вспорол поверхность океана, и мир вспыхнул белым, потом синим, потом чёрным. Вас швырнуло о переборку, трещины на вашем теле на миг погасли, и вы впервые за всю долгую службу почувствовали страх." },
+        { from: "Эхо-7", t: "Корпус разгерметизирован. Давление растёт. Аэ́рхис... мне очень жаль." },
+        "Эхо? ЭХО! Отвечай мне!",
+        { from: "Эхо-7", t: "Я передаю вам всё, что осталось: курс, карты, память о первой звезде, которую мы вместе увидели. Береги Лиора." },
+        { sep: true },
+        { n: "Огни гасли один за другим, словно кто-то неторопливо шёл по коридору и закрывал двери. Последним погас индикатор разума корабля, и в рубке стало так тихо, что вы услышали собственное мерцание." },
+        "Он замолчал, Лиор. Он правда замолчал."
+      ],
+      choices: [
+        { text: "Удержать последние слова Эхо в своей памяти света", energyCost: 10, addFlags: ["ЭХО_ПОМНИТ"], goto: "c01_03" },
+        { text: "Разделить с Аэ́рхисом боль потери", reqSkill: "Эмпатия", o2Cost: 5, goto: "c01_03" },
+        { text: "Сказать: «Эхо ушло. Нам нужно выбираться самим»", o2Cost: 4, goto: "c01_03" }
+      ]
+    },
+    c01_03: {
+      messages: [
+        { n: "Океан принимает рубку без жалости. Ледяная вода врывается через пробоины, и холод обжигает так, будто это огонь. Тьма вокруг густая, плотная, в ней нет ни верха, ни низа, только давление и глухой стук сердца Аэ́рхиса." },
+        "Холод... Лиор, я не чувствую рук.",
+        "Тьма такая густая, что я почти растворяюсь в ней.",
+        { skill: "Память", t: "Я повторяю в уме строки наших карт. Так проще не сойти с ума." },
+        { sep: true },
+        { n: "Вы чувствуете, как граница между его сознанием и тьмой истончается. Ещё немного, и она порвётся. В такие минуты Наблюдатели уходят в сон, из которого не возвращаются." },
+        "Не уходи. Побудь со мной."
+      ],
+      choices: [
+        { text: "Удержать сознание Аэ́рхиса на границе: отдать ему часть света", energyCost: 20, addFlags: ["ДЕРЖАЛ_СВЕТ"], goto: "c01_04" },
+        { text: "Сгладить его страх, замедлив для него время", reqSkill: "Эмпатия", o2Cost: 8, addFlags: ["ДЕРЖАЛ_СВЕТ"], goto: "c01_04" },
+        { text: "Молчать и беречь силы: пусть пробивается сам", o2Cost: 15, hpCost: 4, goto: "c01_04" }
+      ]
+    },
+    c01_04: {
+      messages: [
+        { n: "Обломок переборки зажал ногу Аэ́рхиса, и каждая попытка вырваться только тянула его глубже. Где-то высоко, словно сквозь толстое стекло, дрожало слабое пятно: поверхность. До неё было так далеко, что казалось, это просто память о свете." },
+        "Лёгкие горят. Я запутался в обломках!",
+        { skill: "Навигация", t: "Пузырьки уходят вверх. Значит, там поверхность." },
+        "Лиор, я не вижу, куда плыть. Помоги!"
+      ],
+      choices: [
+        { text: "Подсказать: расцепить ремни и выбраться из обломков", reqSkill: "Ремесло", goto: "c01_05" },
+        { text: "Подсказать: плыть вдоль пузырьков и беречь дыхание", reqSkill: "Выживание", o2Cost: 5, goto: "c01_05" },
+        { text: "Подсказать: рваться вверх изо всех сил", hpCost: 3, o2Cost: 10, goto: "c01_05" }
+      ]
+    },
+    c01_05: {
+      messages: [
+        { n: "Поверхность ударила по лицу холодным ветром, и Аэ́рхис с хрипом втянул воздух. Над волнами, в нескольких сотнях шагов, покачивались огни: большой корабль, жёлтые фонари, силуэты на палубе. Вы поняли, что нити будущего вдруг стали толще и теплее." },
+        { from: "Брюн", t: "Эй, на воде! Там человек! Тео, спускай шлюпку, живее!" },
+        { from: "Тео", t: "Там ещё что-то светится! Это не кит, это не кит, говорю вам!" },
+        { from: "Маргит Ольсен", t: "Отставить крик. Шлюпку на воду, и тихо. Если там люди, им не нужны наши вопли." },
+        "Лиор, они идут к нам. Что мне делать?"
+      ],
+      onEnter: { addItems: ["Капля тишины"] },
+      choices: [
+        { text: "Позволить морякам поднять вас, не скрываясь", goto: "c01_06" },
+        { text: "Приглушить свет и притвориться осколком обломка", reqSkill: "Скрытность", o2Cost: 3, goto: "c01_06" }
+      ]
+    },
+    c01_06: {
+      messages: [
+        { n: "Палуба «Морской ласточки» пахла солью, дымом и горячим супом. Грубые руки подняли Аэ́рхиса из шлюпки, накинули на плечи тяжёлое одеяло и поставили у борта. Вокруг сомкнулся круг незнакомых лиц, каждое из которых было освещено фонарём и каждое смотрело с тревогой, а не со страхом." },
+        { from: "Брюн", t: "Тише, парень, тише. Дыши. Я Брюн, старый боцман. Ты теперь на моём корабле." },
+        { from: "Ингрид Вальк", t: "Дайте ему воздуха. Пульс сто сорок, зрачки реагируют. Он в шоке, но жив." },
+        { from: "Маргит Ольсен", t: "Кто вы такие? Откуда вы упали? Я капитан Ольсен, и это мой корабль." },
+        { sep: true },
+        { n: "Слова звенели, как стеклянные колокольчики. Вы слышали каждое, но не понимали ни одного, и вам казалось, что Аэ́рхис тонет в них сильнее, чем в океане. Капитан ждала ответа, а за её спиной юнга Тео не отрывал глаз от вашего света." },
+        { skill: "Язык", t: "Корни слов похожи на узоры: я начинаю различать, где вопрос, а где забота." },
+        "Лиор, что мне сказать? Правду или что-нибудь другое?"
+      ],
+      choices: [
+        { text: "Подсказать: рассказать правду о том, откуда вы", addFlags: ["ОТКРЫЛСЯ_ЛЮДЯМ"], goto: "c01_07" },
+        { text: "Подсказать: назваться потерпевшими бедствие, без подробностей", addFlags: ["СКРЫЛ_ПРАВДУ"], goto: "c01_07" },
+        { text: "Помочь Аэ́рхису найти человеческие слова: он заговорит сам (−1 слово)", reqSkill: "Язык", reqAmmo: 1, addFlags: ["ОТКРЫЛСЯ_ЛЮДЯМ"], goto: "c01_07" }
+      ]
+    },
+    c01_07: {
+      messages: [
+        { n: "К ночи ветер стих, и «Морская ласточка» пошла мерным ходом по чёрной воде. Аэ́рхиса отвели в крохотную каюту, где пахло смолой и сушёным яблоком, и оставили одного. Вы устроились у его плеча, и впервые за долгие часы ваш свет перестал дрожать." },
+        { from: "Тео", t: "Эй... можно? Я принёс суп. Мама говорит, что он лечит всё, даже сломанные корабли." },
+        "Лиор, он смотрит на тебя. Совсем не боится. Просто смотрит.",
+        { from: "Ингрид Вальк", t: "Выпейте. Это травяной отвар. Он мало что объяснит, но согреет." },
+        { sep: true },
+        { n: "Ингрид задержалась в дверях дольше, чем нужно. Она видела ваш свет, и вы почувствовали: она не спросила не потому, что не заметила, а потому, что решила подождать." },
+        { skill: "Эмпатия", t: "От неё идёт спокойствие, как от тёплого камня. Она всё знает, но молчит." },
+        "Лиор, что ответить Тео? Он ждёт."
+      ],
+      onEnter: { addItems: ["Целебный отвар"] },
+      choices: [
+        { text: "Позволить свету мягко мигнуть для Тео: пусть увидит", energyCost: 5, addFlags: ["ОТКРЫЛСЯ_ЛЮДЯМ"], goto: "c01_end" },
+        { text: "Подсказать Аэ́рхису улыбнуться и принять суп", reqSkill: "Наблюдение", goto: "c01_end" },
+        { text: "Погасить свет и остаться тенью за плечом Аэ́рхиса", o2Cost: 5, goto: "c01_end" }
+      ]
+    },
+    c01_end: {
+      isEnding: true, endingTitle: "Конец Главы 1", epilogue: "Первая глава книги закончена. «Морская ласточка» идёт к берегу, а вы и Аэ́рхис впервые засыпаете под шум чужого моря. Глава 2, «Люди из океана», в работе. Этот финал не входит в число концовок.",
+      messages: [
+        { n: "Так заканчивается Глава 1. Корабль идёт сквозь ночь, и где-то впереди, за краем тьмы, ждёт берег, которого вы никогда не видели." },
+        { n: "Продолжение следует: Глава 2 «Люди из океана»." }
+      ]
+    }
+  }
+};
+
+/* ===================== ДВИЖОК ===================== */
+const SK = ["Наблюдение","Интуиция","Память","Эмпатия","Язык","Навигация","Выживание","Ремесло","Скрытность","Медицина"];
+const KEY = "velnoktari_book_save_v1", MAXINV = 8;
+const LB = STORY_DATA.meta.labels;
+const R = { hp: { l: LB.hp, max: 20, u: "" }, o2: { l: LB.o2, max: 100, u: "%" }, en: { l: LB.en, max: 100, u: "%" }, ammo: { l: LB.ammo, max: 99, u: "" } };
+const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsDel = k => { try { localStorage.removeItem(k); } catch (e) {} };
+const $ = s => document.querySelector(s);
+const el = (t, x) => { const e = document.createElement(t); e.textContent = x; return e; };
+let st = null, run = 0, cfg = { mode: "real", sound: true }, sel = null, picked = new Set();
+
+let ac = null;
+function tone(f, d, type = "sine", v = .05, f2) {
+  if (!cfg.sound) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime;
+    o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.linearRampToValueAtTime(f2, t + d);
+    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.0001, t + d); o.connect(g); g.connect(ac.destination); o.start(); o.stop(t + d);
+  } catch (e) {}
+}
+const sfx = { msg: () => { tone(1100, .09); setTimeout(() => tone(1500, .08), 90); }, alarm: () => { tone(220, .5, "sawtooth", .07, 150); setTimeout(() => tone(220, .4, "sawtooth", .07, 150), 280); }, click: () => tone(600, .05, "square", .03) };
+
+/* --- старт --- */
+function drawSetup() {
+  const box = $("#heroes"); box.innerHTML = "";
+  const card = (h, key) => { const b = document.createElement("button"); b.className = "hero" + (sel === key ? " sel" : ""); b.append(el("b", h.name + (h.path ? " · " + h.path : "")));
+    h.desc && b.append(el("small", h.desc)); h.skills && b.append(el("small", "Навыки: " + h.skills.join(", "))); h.items && b.append(el("small", "Снаряжение: " + h.items.join(", ") + " · слова " + h.ammo));
+    b.onclick = () => { sfx.click(); sel = key; drawSetup(); }; box.append(b); };
+  STORY_DATA.heroes.forEach(h => card(h, h.id));
+  card({ name: "＋ Создать своего Наблюдателя", desc: "Имя и 4 навыка по вашему выбору" }, "custom");
+  $("#cust").hidden = sel !== "custom";
+  $("#sk").innerHTML = "";
+  SK.forEach(s => { const b = el("button", s); b.className = picked.has(s) ? "sel" : ""; b.onclick = () => { sfx.click(); picked.has(s) ? picked.delete(s) : picked.size < 4 && picked.add(s); drawSetup(); }; $("#sk").append(b); });
+  $("#cnt").textContent = picked.size;
+  $("#go").disabled = !(sel && (sel !== "custom" || (picked.size === 4 && $("#nm").value.trim())));
+}
+$("#nm").oninput = drawSetup;
+$("#mReal").onclick = () => { cfg.mode = "real"; $("#mReal").className = "sel"; $("#mFast").className = ""; };
+$("#mFast").onclick = () => { cfg.mode = "fast"; $("#mFast").className = "sel"; $("#mReal").className = ""; };
+$("#snd").onclick = e => { cfg.sound = !cfg.sound; e.target.textContent = "Звук: " + (cfg.sound ? "вкл" : "выкл"); e.target.className = cfg.sound ? "sel" : ""; sfx.click(); };
+$("#go").onclick = () => {
+  sfx.click();
+  const h = sel === "custom" ? { name: $("#nm").value.trim(), skills: [...picked], items: STORY_DATA.meta.customHero.items, ammo: STORY_DATA.meta.customHero.ammo } : STORY_DATA.heroes.find(x => x.id === sel);
+  st = { hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], flags: [], chat: [], queue: [], pend: [], node: null, waitUntil: 0, waitDone: false, dead: false };
+  $("#chat").innerHTML = ""; show("game"); enter(STORY_DATA.meta.start);
+};
+$("#cont").onclick = () => { st = JSON.parse(lsGet(KEY)); cfg.sound = st.sound; cfg.mode = st.mode; show("game"); $("#chat").innerHTML = ""; st.chat.forEach(draw); pump(); };
+const show = id => document.querySelectorAll(".scr").forEach(e => e.classList.toggle("on", e.id === id));
+
+/* --- состояние --- */
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const fill = t => t.replace(/\{hero\}/g, st ? st.hero : "").replace(/\{author\}/g, STORY_DATA.meta.author);
+function draw(m) {
+  const d = document.createElement("div"); d.className = "m " + m.k + (m.bad ? " bad" : "");
+  if (m.k === "hd") d.append(el("small", (m.no > 19 ? "ЭПИЛОГ" : "ГЛАВА " + m.no) + " · СТР. " + m.pages), el("h4", m.t)); else { if (m.k === "in") d.append(el("b", m.f || st.hero)); d.append(document.createTextNode(m.t)); } const c = $("#chat"); c.append(d); c.scrollTop = c.scrollHeight;
+}
+function add(k, t, bad, x) { const m = { k, t, bad }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; } st.chat.push(m); draw(m); save(); }
+function status() {
+  const set = (k, t, b, v, m) => { $(t).textContent = v; $(b).style.width = Math.max(0, st[k]) / m * 100 + "%"; };
+  set("hp", "#hpt", "#hpb", LB.short.hp + " " + st.hp + "/20", 20); set("o2", "#o2t", "#o2b", LB.short.o2 + " " + st.o2 + "%", 100); set("en", "#ent", "#enb", LB.short.en + " " + st.en + "%", 100);
+  $("#hpb").style.background = st.hp <= 6 ? "var(--rd)" : "var(--ac)"; $("#o2b").style.background = st.o2 <= 25 ? "var(--rd)" : "var(--bl)";
+  $("#am").textContent = LB.short.ammo + " " + st.ammo; $("#ic").textContent = st.inv.length + "/" + MAXINV;
+}
+function res(k, d) {
+  const r = R[k], b0 = st[k]; st[k] = Math.max(0, Math.min(r.max, st[k] + d)); if (d < 0) st.stats[{ hp: "dmg", o2: "o2", en: "en", ammo: "ammo" }[k]] += b0 - st[k];
+  add("sys", "[ТЕЛЕМЕТРИЯ: " + r.l + " " + (d > 0 ? "+" : "") + d + r.u + "]", d < 0); if (d < 0 && k !== "ammo") sfx.alarm();
+  if ((st.hp <= 0 || st.o2 <= 0) && !st.dead) { st.dead = true; add("sys", "[СИГНАЛ ПОТЕРЯН: " + (st.hp <= 0 ? STORY_DATA.meta.deathMsg.hp : STORY_DATA.meta.deathMsg.o2) + "]", true); }
+  status();
+}
+function give(it) { if (st.inv.length < MAXINV) { st.inv.push(it); add("sys", "[ИНВЕНТАРЬ: Получен «" + it + "»]"); } else st.pend.push(it); status(); }
+function enter(id) {
+  const n = STORY_DATA.nodes[id]; if (!n) { add("sys", "[ОШИБКА: нет узла " + id + "]", true); return; }
+  st.node = id; st.stats.steps++; st.waitDone = false; st.waitUntil = 0; const o = n.onEnter || {};
+  o.hp && res("hp", o.hp); o.o2 && res("o2", o.o2); o.energy && res("en", o.energy); o.ammo && res("ammo", o.ammo);
+  const dr = n.drain; if (dr) { dr.energy && res("en", dr.energy); dr.o2 && res("o2", dr.o2); if (st.en <= 0 && !st.dead) { add("sys", STORY_DATA.meta.coldMsg, true); res("hp", -2); } }
+  (o.removeItems || []).forEach(it => { const i = st.inv.indexOf(it); if (i >= 0) { st.inv.splice(i, 1); add("sys", "[ИНВЕНТАРЬ: Утрачен «" + it + "»]"); } });
+  (o.addItems || []).forEach(give);
+  (o.addFlags || []).forEach(f => { if (!st.flags.includes(f)) { st.flags.push(f); STORY_DATA.meta.flagNames[f] && add("sys", "[ЖУРНАЛ: новая заметка]"); } });
+  (o.removeFlags || []).forEach(f => st.flags = st.flags.filter(x => x !== f));
+  st.queue = (n.messages || []).filter(m => typeof m === "string" || ((!m.skill || st.skills.includes(m.skill)) && (!m.item || st.inv.includes(m.item)) && (!m.flag || st.flags.includes(m.flag)) && (!m.noFlag || !st.flags.includes(m.noFlag)))).map(m => typeof m === "string" ? { t: fill(m) } : m.sep ? { t: "✦ ✦ ✦", k: "sep" } : { t: fill(m.n || m.t), n: !!m.n, f: m.from });
+  if (n.chapter) { st.chap = n.chapter.no; st.queue.unshift({ k: "hd", t: n.chapter.title, no: n.chapter.no, pages: n.chapter.pages }); }
+  st.nextAt = st.queue.length ? Date.now() + (st.mode === "fast" ? 120 : rnd(STORY_DATA.meta.pace.first)) : 0;
+  status(); save(); pump();
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const rnd = ([a, b]) => Math.round((a + Math.random() * (b - a)) * 1000);
+async function pump() {
+  const my = ++run; modeBtn(); status(); $("#chs").innerHTML = ""; $("#chs").style.maxHeight = ""; $("#chh").hidden = true; $("#wait").hidden = true;
+  while (st.pend.length) { await askDrop(st.pend[0]); if (my !== run) return; }
+  while (st.queue.length && !st.dead) {
+    const q = st.queue[0], fast = () => st.mode === "fast", P = STORY_DATA.meta.pace;
+    if (!st.nextAt) { st.nextAt = Date.now() + (fast() ? 120 : rnd(q.n || q.k ? P.narr : P.msg)); save(); }
+    while (!fast() && Date.now() < st.nextAt) {
+      const left = st.nextAt - Date.now();
+      $("#typ").textContent = q.n || q.k ? "" : (left < 2200 ? "▌ " + (q.f || st.hero) + " печатает..." : "▌ Приём сигнала...");
+      await sleep(Math.min(250, left)); if (my !== run) return;
+    }
+    $("#typ").textContent = ""; st.queue.shift(); add(q.k || (q.n ? "nar" : "in"), q.t, false, q); sfx.msg();
+    const nx = st.queue[0]; st.nextAt = nx ? (fast() ? Date.now() + 120 : st.nextAt + rnd(nx.n || nx.k ? P.narr : P.msg)) : 0; save();
+    await sleep(fast() ? 60 : 150); if (my !== run) return;
+  }
+  $("#typ").textContent = ""; if (st.dead) return death(my);
+  const n = STORY_DATA.nodes[st.node];
+  if (n.waitSeconds && !st.waitDone && st.mode === "real") {
+    if (!st.waitUntil) { st.waitUntil = Date.now() + n.waitSeconds * 1000; save(); }
+    await countdown(n, my); if (my !== run) return; st.waitDone = true; st.waitUntil = 0; save(); sfx.msg();
+  }
+  if (n.isEnding) { endBtn(); await sleep(st.mode === "fast" ? 500 : 2000); if (my !== run) return; return showFinal(false); }
+  choices(n);
+}
+function countdown(n, my) {
+  return new Promise(res => {
+    const w = $("#wait"); w.hidden = false;
+    const tick = () => {
+      if (my !== run || st.mode === "fast") { clearInterval(t); w.hidden = true; return res(); }
+      const l = Math.max(0, Math.ceil((st.waitUntil - Date.now()) / 1000));
+      w.textContent = fill(n.waitText || "Связь прервана") + "... " + String(Math.floor(l / 60)).padStart(2, "0") + ":" + String(l % 60).padStart(2, "0");
+      if (l <= 0) { clearInterval(t); w.hidden = true; res(); }
+    };
+    const t = setInterval(tick, 250); tick();
+  });
+}
+function choices(n) {
+  const box = $("#chs"); box.innerHTML = ""; if (!n.choices || !n.choices.length) return endBtn();
+  n.choices.forEach(c => {
+    if (c.reqFlag && !st.flags.includes(c.reqFlag)) return; if (c.forbidFlag && st.flags.includes(c.forbidFlag)) return;
+    let lock = false, tg = [];
+    if (c.reqSkill) { tg.push("навык: " + c.reqSkill); lock = lock || !st.skills.includes(c.reqSkill); }
+    if (c.reqItem) { tg.push("предмет: " + c.reqItem); lock = lock || !st.inv.includes(c.reqItem); }
+    if (c.useItem) { tg.push("расход: " + c.useItem); lock = lock || !st.inv.includes(c.useItem); }
+    if (c.reqAmmo) { tg.push("−" + c.reqAmmo + " " + LB.tag.ammo); lock = lock || st.ammo < c.reqAmmo; }
+    if (c.energyCost) { tg.push("−" + c.energyCost + "% " + LB.tag.en); lock = lock || st.en < c.energyCost; }
+    if (c.o2Cost) tg.push("−" + c.o2Cost + "% " + LB.tag.o2); if (c.hpCost) tg.push("−" + c.hpCost + " " + LB.tag.hp);
+    const b = document.createElement("button"); b.className = "ch"; b.disabled = lock; b.append(document.createTextNode((lock ? "🔒 " : "") + fill(c.text) + " ")); b.append(el("small", tg.length ? "[" + tg.join(", ") + "]" : ""));
+    b.onclick = () => pick(c); box.append(b);
+  });
+  fitChoices();
+}
+function fitChoices() {
+  const box = $("#chs"), h = $("#chh"), b = box.children; box.style.maxHeight = ""; box.onscroll = null; h.hidden = true;
+  if (b.length <= 2) return;
+  box.style.maxHeight = (b[0].offsetHeight + b[1].offsetHeight + 6) + "px"; box.scrollTop = 0;
+  h.textContent = "↕ Вариантов: " + b.length + ". Листайте список ползунком"; h.hidden = false;
+  box.onscroll = () => { h.hidden = box.scrollTop + box.clientHeight >= box.scrollHeight - 4; };
+}
+function endBtn() {
+  const box = $("#chs"); box.innerHTML = "";
+  const a = el("button", "📜 Итоги пути"); a.onclick = () => showFinal(st.dead);
+  const b = el("button", "↻ Начать новый путь"); b.onclick = restart; box.append(a, b); fitChoices();
+}
+function restart() {
+  lsDel(KEY); run++; st = null; $("#chat").innerHTML = ""; $("#chs").innerHTML = ""; $("#typ").textContent = ""; $("#wait").hidden = true;
+  $("#modal").classList.remove("on"); refresh(); drawSetup(); show("setup");
+}
+function applyChoice(c) {
+  if (c.useItem) { const k = st.inv.indexOf(c.useItem); if (k >= 0) { st.inv.splice(k, 1); add("sys", "[ИНВЕНТАРЬ: Потрачен «" + c.useItem + "»]"); } }
+  (c.addItems || []).forEach(give);
+  (c.addFlags || []).forEach(f => { if (!st.flags.includes(f)) { st.flags.push(f); STORY_DATA.meta.flagNames[f] && add("sys", "[ЖУРНАЛ: новая заметка]"); } });
+  status();
+}
+function useItem(i) {
+  const k = st.inv.indexOf(i); if (k < 0) return; st.inv.splice(k, 1); add("sys", "[ИНВЕНТАРЬ: Использован «" + i + "»]");
+  const fx = STORY_DATA.items[i]; fx.hp && res("hp", fx.hp); fx.o2 && res("o2", fx.o2); fx.energy && res("en", fx.energy); status(); save();
+  if ($("#chs").children.length && !st.dead) choices(STORY_DATA.nodes[st.node]);
+}
+function showInv() {
+  modal(m => { m.append(el("h3", "ИНВЕНТАРЬ НАПАРНИКА " + st.inv.length + "/" + MAXINV)); if (!st.inv.length) m.append(el("p", "Пусто."));
+    st.inv.forEach(i => { const fx = STORY_DATA.items[i]; if (fx) { const b = el("button", "Использовать: " + i + " (" + fx.hint + ")"); b.onclick = () => { useItem(i); showInv(); }; m.append(b); } else m.append(el("p", "• " + i)); }); });
+}
+function pick(c) {
+  st.stats.choices++; if (c.reqSkill) { st.stats.skills++; if (!st.stats.skillList.includes(c.reqSkill)) st.stats.skillList.push(c.reqSkill); }
+  run++; sfx.click(); $("#chs").innerHTML = ""; add("out", fill(c.text));
+  c.reqAmmo && res("ammo", -c.reqAmmo); c.energyCost && res("en", -c.energyCost); c.o2Cost && res("o2", -c.o2Cost); c.hpCost && res("hp", -c.hpCost); applyChoice(c);
+  st.dead ? pump() : enter(c.goto);
+}
+
+/* --- окна --- */
+function modal(fn, close = true, cls = "") {
+  const m = $("#mb"); m.className = cls; m.innerHTML = ""; fn(m);
+  if (close) { const b = el("button", "Закрыть"); b.onclick = () => $("#modal").classList.remove("on"); m.append(b); } $("#modal").classList.add("on");
+}
+async function death(my) {
+  sfx.alarm(); endBtn(); await sleep(st.mode === "fast" ? 500 : 2200); if (my !== run) return; showFinal(true);
+}
+function askDrop(item) {
+  return new Promise(res => modal(m => {
+    m.append(el("h3", "ИНВЕНТАРЬ НАПАРНИКА ПЕРЕПОЛНЕН"), el("p", "Новый предмет: «" + item + "». Что выбросить?"));
+    const done = () => { st.pend.shift(); status(); save(); $("#modal").classList.remove("on"); res(); };
+    st.inv.forEach((it, i) => { const b = el("button", "Выбросить: " + it); b.onclick = () => { st.inv.splice(i, 1, item); add("sys", "[ИНВЕНТАРЬ: Выброшен «" + it + "», получен «" + item + "»]"); done(); }; m.append(b); });
+    const k = el("button", "Не брать «" + item + "»"); k.onclick = () => { add("sys", "[ИНВЕНТАРЬ: «" + item + "» оставлен]"); done(); }; m.append(k);
+  }, false));
+}
+$("#bInv").onclick = showInv;
+function modeBtn() { $("#bMode").textContent = st.mode === "fast" ? "⚡" : "⏱"; $("#bMode").title = st.mode === "fast" ? "Быстрый темп (нажмите: реалистичный)" : "Реалистичный темп (нажмите: быстрый)"; }
+$("#bMode").onclick = () => { st.mode = st.mode === "fast" ? "real" : "fast"; modeBtn(); save(); };
+$("#bLog").onclick = () => modal(m => {
+  m.append(el("h3", "ЖУРНАЛ"), el("p", STORY_DATA.meta.title + " · авторская книга-игра · " + STORY_DATA.meta.author), el("p", "Позывной: " + st.hero), el("p", "Навыки: " + st.skills.join(", ")),
+    el("p", "Выносливость " + st.hp + "/20 · O₂ " + st.o2 + "% · Заряд " + st.en + "% · Патроны " + st.ammo), el("h3", "Заметки"));
+  const nt = st.flags.filter(f => STORY_DATA.meta.flagNames[f]); if (!nt.length) m.append(el("p", "Пока нет."));
+  nt.forEach(f => m.append(el("p", "• " + STORY_DATA.meta.flagNames[f])));
+  m.append(el("h3", "Оглавление"));
+  STORY_DATA.meta.chapters.forEach(c => m.append(el("p", (st.chap === c.no ? "▶ " : (st.chap > c.no ? "✔ " : "· ")) + (c.no > 19 ? "Эпилог" : "Глава " + c.no + ". ") + (c.no > 19 ? "" : c.title) + " (стр. " + c.pages + ")" + (c.ready ? "" : " · в работе"))));
+  m.append(el("h3", "Персонажи")); STORY_DATA.meta.cast.forEach(c => m.append(el("p", c[0] + ": " + c[1])));
+});
+
+/* --- мета-прогресс и экран финала --- */
+const UKEY = "unlocked_endings";
+function getU() { try { return JSON.parse(lsGet(UKEY)) || []; } catch (e) { return []; } }
+function unlock(id) { if (!STORY_DATA.meta.endings[id]) return false; const u = getU(); if (u.includes(id)) return false; u.push(id); try { localStorage.setItem(UKEY, JSON.stringify(u)); } catch (e) {} return true; }
+const countTxt = () => "Открыто концовок: " + getU().filter(i => STORY_DATA.meta.endings[i]).length + " / " + STORY_DATA.meta.endingTotal;
+function refresh() {
+  $("#spC").textContent = $("#ucA").textContent = countTxt(); const sv = !!lsGet(KEY);
+  $("#cont").style.display = $("#spCont").style.display = sv ? "" : "none";
+}
+function showFinal(dead) {
+  const M = STORY_DATA.meta, n = STORY_DATA.nodes[st.node] || {}, E = M.endings, id = dead ? M.deathEnding : st.node, def = E[id] || {}, fresh = unlock(id), S = st.stats, box = $("#fn");
+  box.innerHTML = "";
+  const A = (t, x, c) => { const e = document.createElement(t); if (x != null) e.textContent = x; if (c) e.className = c; box.append(e); return e; };
+  const KV = rows => { const d = A("div", null, "card"); rows.forEach(([k, v]) => { const r = document.createElement("div"); r.className = "kv"; r.append(el("span", k), el("b", String(v))); d.append(r); }); };
+  const num = Object.keys(E).indexOf(id) + 1;
+  const ep = fill(dead ? (st.hp <= 0 ? M.deathEpilogue.hp : M.deathEpilogue.o2) : (n.epilogue || def.epilogue || ""));
+  A("div", "ИТОГИ ПУТИ", "kick");
+  A("h2", dead ? M.deathTitle : (n.endingTitle || def.title || "Финал"), "fh" + (dead ? " bad" : ""));
+  A("div", num ? "Концовка " + num + " из " + M.endingTotal + (dead ? ": " + def.title : "") + (fresh ? "   ✦ НОВАЯ КОНЦОВКА" : "") : "Этот финал не входит в число концовок", "fs");
+  ep && A("p", ep, "fe");
+  A("h3", "Карточка Наблюдателя"); KV([["Позывной", st.hero], ["Архетип", st.arch], ["Навыки", st.skills.join(", ")]]);
+  A("h3", "Итоговая телеметрия"); KV([[LB.hp, st.hp + " / 20"], [LB.o2, st.o2 + "%"], [LB.en, st.en + "%"], [LB.ammo, st.ammo]]);
+  A("h3", "Статистика прохождения");
+  KV([["Пройдено узлов (шагов)", S.steps], ["Сделано выборов", S.choices], ["Применено навыков", S.skills + (S.skillList.length ? " (" + S.skillList.join(", ") + ")" : "")],
+    ["Потеряно: " + LB.hp.toLowerCase(), S.dmg], ["Потрачено: " + LB.ammo.toLowerCase(), S.ammo], ["Потрачено: " + LB.o2.toLowerCase(), S.o2 + "%"], ["Потрачено: " + LB.en.toLowerCase(), S.en + "%"]]);
+  A("h3", "Летопись решений");
+  const ch = st.flags.map(f => M.achievements[f] || M.flagNames[f]).filter(Boolean), cd = A("div", null, "card");
+  if (!ch.length) cd.append(el("span", "Ключевых решений не зафиксировано."));
+  ch.forEach(t => { const r = document.createElement("div"); r.className = "kv"; r.append(el("span", "✦ " + t)); cd.append(r); });
+  A("h3", "Прогресс концовок"); A("div", countTxt(), "fs");
+  const row = A("div", null, "chips"), u = getU(); Object.keys(E).forEach(k => row.append(el("span", u.includes(k) ? "✔ " + E[k].title : "???")));
+  const b1 = A("button", "↻ Начать новый путь"); b1.style.cssText = "background:var(--ac);color:#07102a;font-weight:700;text-align:center;margin-top:14px"; b1.onclick = restart;
+  const b2 = A("button", "Вернуться к ленте связи"); b2.style.textAlign = "center"; b2.onclick = () => show("game");
+  A("div", CRED, "cred"); refresh(); show("final"); $("#final").scrollTop = 0;
+}
+
+/* --- заставка, пролог --- */
+const M = STORY_DATA.meta, CRED = "Авторская книга-игра · " + M.author;
+document.title = M.title + " — авторская книга-игра";
+$("#ldT").textContent = M.title; $("#ldA").textContent = CRED; $("#spT").textContent = M.title; $("#spS").textContent = M.sub; $("#spB").textContent = M.blurb; $("#spF").textContent = M.facts; $("#spA").textContent = CRED;
+$("#credA").textContent = $("#credG").textContent = M.title + " · " + CRED;
+function snow() {
+  const c = $("#snow"), x = c.getContext("2d"), W = c.width = c.parentNode.clientWidth, H = c.height = c.parentNode.clientHeight;
+  const p = Array.from({ length: 90 }, () => ({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 2 + .5, v: Math.random() * .8 + .3, d: Math.random() * 6 }));
+  (function f() { if (!$("#splash").classList.contains("on")) return; x.clearRect(0, 0, W, H); x.fillStyle = "#dbe4ffaa";
+    p.forEach(q => { q.y += q.v; q.x += Math.sin((q.y + q.d * 50) / 40) * .5 + .3; if (q.y > H) { q.y = -5; q.x = Math.random() * W; } if (q.x > W) q.x = 0; x.beginPath(); x.arc(q.x, q.y, q.r, 0, 6.3); x.fill(); }); requestAnimationFrame(f); })();
+}
+function boot() {
+  const L = STORY_DATA.meta.bootLines; let i = 0;
+  const t = setInterval(() => { $("#ldlog").textContent = L[i] || ""; $("#ldbar").style.width = Math.min(100, (i + 1) / L.length * 100) + "%"; i++; if (i > L.length) { clearInterval(t); show("splash"); snow(); } }, 650);
+}
+function prologue() {
+  show("prologue"); const b = $("#pr"); b.innerHTML = "";
+  M.prologue.forEach((t, i) => { const p = document.createElement("p"); p.className = "pp"; p.style.animationDelay = i * 2.2 + "s"; p.textContent = t; b.append(p); });
+  $("#prGo").style.animationDelay = M.prologue.length * 2.2 + "s";
+}
+$("#prologue").onclick = () => document.querySelectorAll("#prologue .pp").forEach(x => { x.style.animation = "none"; x.style.opacity = 1; });
+$("#spGo").onclick = () => { sfx.click(); prologue(); };
+$("#spCont").onclick = () => $("#cont").onclick();
+$("#prGo").onclick = () => { sfx.click(); show("setup"); };
+refresh(); drawSetup(); boot();
+</script></body></html>
