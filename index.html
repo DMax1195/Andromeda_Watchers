@@ -94,6 +94,52 @@ html{background:#02030a}body{height:100dvh;overflow:hidden}
 .pg{margin-top:6px;text-align:center;font-size:12px;letter-spacing:.14em;color:var(--am)}
 .pg:empty{display:none}.pg::after{content:"";display:block;height:2px;margin-top:5px;border-radius:1px;background:linear-gradient(90deg,var(--am) var(--p,0%),var(--ln) 0)}
 .m.sep{align-self:stretch;max-width:100%;text-align:center;color:var(--dim);font:400 22px/1 Lora,Georgia,serif;letter-spacing:.45em;text-indent:.45em;padding:16px 0 12px;opacity:.9}
+
+/* --- Мобильная компоновка: фиксированные панели, прокрутка только текста --- */
+html, body { height: 100%; min-height: 0; }
+body {
+  height: 100dvh; max-height: 100dvh; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+#game {
+  width: 100%; height: 100%; max-height: 100dvh; min-height: 0;
+  flex: 1 1 0; overflow: hidden; display: flex; flex-direction: column;
+}
+#game > #top, #game > #credG, #game > #typ, #game > #bot {
+  flex: 0 0 auto; min-height: 0;
+}
+#game > #chat {
+  flex: 1 1 0; min-height: 0; max-height: none;
+  overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; scroll-behavior: smooth;
+}
+#game > #bot { flex-shrink: 0; overflow: visible; }
+#game #chs {
+  max-height: none !important; overflow: visible; overscroll-behavior: auto;
+  scroll-snap-type: none; scrollbar-width: none;
+}
+#game #chs::-webkit-scrollbar { display: none; }
+#game #chs button { flex: 0 0 auto; }
+
+/* --- Пролог появляется полностью сразу; длинный текст прокручивается внутри --- */
+#prologue .in {
+  width: 100%; max-height: 100%; min-height: 0;
+  overflow-x: hidden; overflow-y: auto; align-items: stretch;
+  justify-content: flex-start;
+  padding: 12px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  scrollbar-width: thin;
+}
+#prologue .kick { text-align: center; }
+#prologue #pr { width: 100%; max-width: 520px; margin: 0 auto; }
+#prologue .pp { opacity: 1; animation: none; }
+#prologue #pr .pp {
+  font: italic 16px/1.75 Lora, Georgia, serif; color: #c3d6e2;
+  text-align: justify; text-indent: 1.4em; margin: 0 0 14px;
+}
+#prologue #prGo {
+  opacity: 1; animation: none; align-self: center; margin: 10px auto 0;
+}
+
 </style></head><body>
 
 <div id="loader" class="scr on"><div class="ld-t" id="ldT"></div><div class="ld-bar"><i id="ldbar"></i></div><div id="ldlog"></div><div class="cred" id="ldA"></div></div>
@@ -566,7 +612,7 @@ function more(my) {
   return new Promise(res => {
     holdRun = my; const box = $("#chs"), c = $("#chat"); box.innerHTML = ""; box.style.maxHeight = ""; $("#chh").hidden = true;
     const go = () => { if (my !== run || (window.getSelection && String(window.getSelection()))) return; c.onclick = null; box.innerHTML = ""; holdRun = 0; sfx.click(); res(); };
-    const b = el("button", "Читать дальше..."); b.className = "more"; b.onclick = go; c.onclick = go; box.append(b); try { b.focus({ preventScroll: true }); } catch (e) {}
+    const b = el("button", "Читать дальше..."); b.className = "more"; b.onclick = go; c.onclick = go; box.append(b); scrollChatToBottom(); try { b.focus({ preventScroll: true }); } catch (e) {}
   });
 }
 function readEnd(my) { /* выбор открывается только после явного дочитывания страницы до конца */
@@ -647,18 +693,22 @@ function choices(n) {
     b.onclick = () => pick(c); box.append(b);
   });
   fitChoices();
+  scrollChatToBottom();
+}
+function scrollChatToBottom() {
+  const c = $("#chat");
+  requestAnimationFrame(() => { c.scrollTop = c.scrollHeight; });
 }
 function fitChoices() {
-  const box = $("#chs"), h = $("#chh"), b = box.children; box.style.maxHeight = ""; box.onscroll = null; h.hidden = true;
-  if (b.length <= 2) return;
-  box.style.maxHeight = (b[0].offsetHeight + b[1].offsetHeight + 6) + "px"; box.scrollTop = 0;
-  h.textContent = "↕ Вариантов: " + b.length + ". Листайте список ползунком"; h.hidden = false;
-  box.onscroll = () => { h.hidden = box.scrollTop + box.clientHeight >= box.scrollHeight - 4; };
+  // Варианты остаются в закреплённом нижнем блоке; скроллится только книга.
+  const box = $("#chs"), h = $("#chh");
+  box.style.maxHeight = ""; box.style.overflowY = "visible"; box.onscroll = null;
+  h.hidden = true;
 }
 function endBtn() {
   const box = $("#chs"); box.innerHTML = "";
   const a = el("button", "📜 Итоги пути"); a.onclick = () => showFinal(st.dead);
-  const b = el("button", "↻ Начать новый путь"); b.onclick = restart; box.append(a, b); fitChoices();
+  const b = el("button", "↻ Начать новый путь"); b.onclick = restart; box.append(a, b); fitChoices(); scrollChatToBottom();
 }
 function restart() {
   lsDel(KEY); run++; st = null; $("#chat").innerHTML = ""; $("#chs").innerHTML = ""; $("#typ").textContent = ""; $("#wait").hidden = true;
@@ -793,10 +843,14 @@ function boot() {
 }
 function prologue() {
   show("prologue"); const b = $("#pr"); b.innerHTML = "";
-  M.prologue.forEach((t, i) => { const p = document.createElement("p"); p.className = "pp"; p.style.animationDelay = i * 2.2 + "s"; p.textContent = t; b.append(p); });
-  $("#prGo").style.animationDelay = M.prologue.length * 2.2 + "s";
+  M.prologue.forEach(t => {
+    const p = document.createElement("p");
+    p.className = "pp"; p.style.animation = "none"; p.style.opacity = "1";
+    p.textContent = t; b.append(p);
+  });
+  const go = $("#prGo"); go.style.animation = "none"; go.style.opacity = "1"; go.style.animationDelay = "0s";
+  $("#prologue .in").scrollTop = 0;
 }
-$("#prologue").onclick = () => document.querySelectorAll("#prologue .pp").forEach(x => { x.style.animation = "none"; x.style.opacity = 1; });
 $("#spGo").onclick = () => { sfx.click(); prologue(); };
 $("#spCont").onclick = () => $("#cont").onclick();
 $("#prGo").onclick = () => { sfx.click(); show("setup"); };
