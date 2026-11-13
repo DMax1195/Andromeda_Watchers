@@ -25,7 +25,7 @@ input{width:100%;font:inherit;color:var(--tx);background:var(--pn);border:1px so
 .m.sys{align-self:center;max-width:95%;font-size:12px;color:var(--am);text-align:center;padding:0}.m.sys.bad{color:var(--rd)}
 #typ{color:var(--dim);font-size:12px;padding:0 12px 4px;height:20px}
 #bot{padding:8px 10px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--ln);background:var(--pn);display:flex;flex-direction:column;gap:6px;min-height:64px}
-#wait{text-align:center;color:var(--am);padding:12px 0}.ch small{color:var(--dim)}
+#wait{text-align:center;color:var(--am);padding:12px 0;cursor:pointer;user-select:none;border-radius:7px}#wait:active{background:#1b2038;color:#fff}.ch small{color:var(--dim)}
 #modal{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;padding:16px;z-index:10000;pointer-events:none;touch-action:manipulation}#modal.on{display:flex;pointer-events:auto}
 #mb{background:var(--pn);border:1px solid var(--ln);border-radius:12px;padding:14px;width:100%;max-width:460px;max-height:min(82dvh,760px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:8px}
 #mb h3{margin:0;color:var(--ac);font-size:15px}#mb p{margin:0;color:var(--dim)}#mb.dead h3{color:var(--rd);font-size:18px}
@@ -857,11 +857,6 @@ const DOSSIER_DATA = [
     ]
   },
   {
-    id: "klim", name: "Клим", role: "Матрос «Северного горизонта»",
-    desc: "Матрос траулера. Немногословен и надёжен; одним из первых заметил, насколько необычны спасённые из океана незнакомцы.",
-    facts: []
-  },
-  {
     id: "ingrid", name: "Ингрид Вальк", role: "Судовой врач",
     desc: "Высокая женщина с собранными светлыми волосами и усталыми серыми глазами. Внимательна к пациентам, требовательна к порядку и замечает детали, которые другие пропускают.",
     facts: [
@@ -936,50 +931,53 @@ const DOSSIER_DATA = [
   },
 ];
 const DOSSIER_UNLOCKS = {
-  c01_01: ["brandt", "holger", "klim"],
+  c01_01: ["brandt", "holger"],
   c01_02: ["ingrid", "theo"],
   c01_03: ["marta"],
   c01_04: ["sven", "olaf"],
   c02_01: ["henrik"],
   c02_04: ["ragnar", "astrid"]
 };
-const DOSSIER_LEGACY_STAGES = {
-  c01_01: 1, c01_02: 2, c01_03: 3, c01_04: 4, c01_05: 5, c01_06: 6,
-  c02_01: 6, c02_02: 6, c02_03: 6, c02_04: 7, c02_05: 8, c02_06: 9
-};
-function ensureDossierList() {
-  if (!Array.isArray(st.dossiers)) st.dossiers = ["aerkhis", "liorsaen"];
-  ["aerkhis", "liorsaen"].forEach(id => { if (!st.dossiers.includes(id)) st.dossiers.push(id); });
+
+// Разблокировка строится по фактически достигнутому сюжетному узлу.
+// Для промежуточных узлов сохраняются все встречи, которые идут раньше по истории.
+function dossierIdsThroughNode(nodeId) {
+  const ids = ["aerkhis", "liorsaen"];
+  const current = String(nodeId || "").match(/^c(\d+)_(\d+)$/);
+  if (!current) return ids;
+  const currentChapter = Number(current[1]);
+  const currentScene = Number(current[2]);
+  Object.entries(DOSSIER_UNLOCKS).forEach(([unlockNode, dossierIds]) => {
+    const point = unlockNode.match(/^c(\d+)_(\d+)$/);
+    if (!point) return;
+    const chapter = Number(point[1]);
+    const scene = Number(point[2]);
+    if (chapter < currentChapter || (chapter === currentChapter && scene <= currentScene)) {
+      dossierIds.forEach(id => { if (!ids.includes(id)) ids.push(id); });
+    }
+  });
+  return ids.filter(id => DOSSIER_DATA.some(d => d.id === id));
 }
-function addDossierIds(ids) {
-  let changed = false;
-  (ids || []).forEach(id => { if (DOSSIER_DATA.some(d => d.id === id) && !st.dossiers.includes(id)) { st.dossiers.push(id); changed = true; } });
+
+function ensureDossierList() {
+  const expected = dossierIdsThroughNode(st.node);
+  const changed = !Array.isArray(st.dossiers) ||
+    st.dossiers.length !== expected.length ||
+    expected.some(id => !st.dossiers.includes(id));
+  st.dossiers = expected;
   return changed;
 }
+
 function unlockDossiersForNode(nodeId) {
-  ensureDossierList();
-  if (addDossierIds(DOSSIER_UNLOCKS[nodeId])) save();
+  const previous = Array.isArray(st.dossiers) ? st.dossiers.join("|") : "";
+  st.dossiers = dossierIdsThroughNode(nodeId);
+  if (previous !== st.dossiers.join("|")) save();
 }
+
 function migrateDossiersForLegacySave() {
-  const hadDossierState = Array.isArray(st.dossiers);
-  ensureDossierList();
-  if (["c02_01", "c02_02", "c02_03", "c02_04", "c02_05", "c02_06", "c02_07"].includes(st.node)) {
-    addDossierIds(["henrik"]);
-  }
-  if (["c02_04", "c02_05", "c02_06", "c02_07"].includes(st.node)) {
-    addDossierIds(["ragnar", "astrid"]);
-  }
-  if (!hadDossierState) {
-    const stage = DOSSIER_LEGACY_STAGES[st.node] || 0;
-    const pageMatch = String(st.page || "").match(/\d+/);
-    const page = pageMatch ? Number(pageMatch[0]) : 0;
-    const reached = Math.max(stage, page >= 17 ? 4 : page >= 13 ? 3 : page >= 9 ? 2 : page >= 5 ? 1 : 0);
-    if (reached >= 1) addDossierIds(["brandt", "holger", "klim"]);
-    if (reached >= 2) addDossierIds(["ingrid", "theo"]);
-    if (reached >= 3) addDossierIds(["marta"]);
-    if (reached >= 4) addDossierIds(["sven", "olaf"]);
-  }
-  save();
+  // Старые сохранения могли содержать преждевременно открытые карточки.
+  // Пересобираем список по текущему узлу, оставляя только уже достигнутые встречи.
+  if (ensureDossierList()) save();
 }
 
 /* ===================== ДВИЖОК ===================== */
@@ -1003,7 +1001,7 @@ function tone(f, d, type = "sine", v = .05, f2) {
     g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.0001, t + d); o.connect(g); g.connect(ac.destination); o.start(); o.stop(t + d);
   } catch (e) {}
 }
-const sfx = { msg: () => { tone(1100, .09); setTimeout(() => tone(1500, .08), 90); }, alarm: () => { tone(220, .5, "sawtooth", .07, 150); setTimeout(() => tone(220, .4, "sawtooth", .07, 150), 280); }, click: () => tone(600, .05, "square", .03), page: () => { tone(420, .11, "sine", .014, 270); setTimeout(() => tone(210, .12, "triangle", .009, 145), 45); } };
+const sfx = { msg: () => { tone(1100, .09); setTimeout(() => tone(1500, .08), 90); }, signal: () => tone(720, .16, "sine", .012, 560), alarm: () => { tone(220, .5, "sawtooth", .07, 150); setTimeout(() => tone(220, .4, "sawtooth", .07, 150), 280); }, click: () => tone(600, .05, "square", .03), page: () => { tone(420, .11, "sine", .014, 270); setTimeout(() => tone(210, .12, "triangle", .009, 145), 45); } };
 
 /* --- старт --- */
 function drawSetup() {
@@ -1026,7 +1024,7 @@ $("#snd").onclick = e => { cfg.sound = !cfg.sound; e.target.textContent = "Зв�
 $("#go").onclick = () => {
   sfx.click();
   const h = sel === "custom" ? { name: $("#nm").value.trim(), skills: [...picked], items: STORY_DATA.meta.customHero.items, ammo: STORY_DATA.meta.customHero.ammo } : STORY_DATA.heroes.find(x => x.id === sel);
-  st = { hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, currentPage: 1, pageSchemeVersion: 2, chap: 1, page: 1, waitUntil: 0, waitDone: false, dead: false };
+  st = { hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, currentPage: 1, charsRead: 0, pendingCharsRead: 0, pageSchemeVersion: 3, chap: 1, page: 1, waitUntil: 0, waitDone: false, dead: false };
   $("#chat").innerHTML = ""; show("game"); status(); enter(STORY_DATA.meta.start);
 };
 $("#cont").onclick = () => {
@@ -1056,9 +1054,37 @@ $("#cont").onclick = () => {
     st.currentPage = Math.max(1, Math.min(STORY_DATA.meta.totalPages || 377, Math.floor(restoredPage)));
     st.currentChapter = Math.max(1, Math.floor(Number(st.currentChapter)));
     st.pageSchemeVersion = 2;
+    // Переход со старого счётчика кликов: точное число символов для старых
+    // сохранений восстановить нельзя, поэтому сохраняем прежний прогресс как
+    // стартовую оценку в символах. Новые сохранения ведут точный счёт с нуля.
+    if (!Number.isFinite(Number(st.charsRead)) || Number(st.charsRead) < 0) {
+      const legacyPage = Math.max(1, Math.floor(Number(st.currentPage || st.page) || 1));
+      st.charsRead = (legacyPage - 1) * 1600;
+    }
+    if (!Number.isFinite(Number(st.pendingCharsRead)) || Number(st.pendingCharsRead) < 0) st.pendingCharsRead = 0;
+    st.charsRead = Math.max(0, Math.floor(Number(st.charsRead) || 0));
+    st.pendingCharsRead = Math.max(0, Math.floor(Number(st.pendingCharsRead) || 0));
+    st.currentPage = pageFromChars(st.charsRead);
+    st.pageSchemeVersion = 3;
     st.page = st.currentPage; st.chap = st.currentChapter;
   }
   migrateDossiersForLegacySave();
+
+  // Старые сохранения могли хранить обычные абзацы как сообщения с подписью героя.
+  // Переводим их в книжный стиль; реальные реплики оставляем с тире.
+  if (Array.isArray(st.chat)) st.chat.forEach(m => {
+    if (m && m.k === "in") {
+      const dialogue = SPEECH.test(m.t || "") || !!m.f;
+      m.k = dialogue ? "spk" : "nar";
+      if (dialogue && !SPEECH.test(m.t || "")) m.t = "— " + (m.t || "");
+    }
+  });
+  if (Array.isArray(st.queue)) st.queue.forEach(q => {
+    if (q && !q.k && q.k !== "hd" && q.k !== "sep") q.k = SPEECH.test(q.t || "") || q.f ? "spk" : "nar";
+  });
+  if (!Number.isFinite(Number(st.paragraphsShownInNode)) || Number(st.paragraphsShownInNode) < 0) {
+    st.paragraphsShownInNode = Array.isArray(st.queue) && st.queue.length && Array.isArray(st.chat) && st.chat.length ? 1 : 0;
+  }
 
   // Совместимость со старыми сохранениями: включаем постраничное чтение
   // для оставшейся очереди, если в сохранении ещё нет параметров пагинации.
@@ -1082,6 +1108,10 @@ const show = id => {
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
 const SPEECH = /^\s*[—―]\s*|^\s*–\s+/;
 const fill = t => t.replace(/\{hero\}/g, st ? st.hero : "").replace(/\{author\}/g, STORY_DATA.meta.author);
+// Считаем видимый текст реплик и повествования; служебные заголовки и разделители исключены.
+function bookTextCharCount(value) {
+  return Array.from(String(value == null ? "" : value)).length;
+}
 function draw(m, emptyText = false) {
   const d = document.createElement("div"); d.className = "m " + m.k + (m.bad ? " bad" : "");
   let textNode = null;
@@ -1095,6 +1125,11 @@ function draw(m, emptyText = false) {
 function add(k, t, bad, x) { const m = { k, t, bad }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; } st.chat.push(m); if (st.chat.length > CHAT_MAX) st.chat.splice(0, st.chat.length - CHAT_MAX); draw(m); const cb = $("#chat"); while (cb.children.length > CHAT_MAX) cb.firstChild.remove(); save(); }
 async function addTyped(k, t, bad, x, my) {
   const m = { k, t, bad }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; }
+  // Учитываем абзац один раз в отложенном буфере. Он попадёт в общий счётчик
+  // при нажатии «Читать дальше...» или выборе сюжетного действия.
+  if (x && x.k !== "hd" && x.k !== "sep") {
+    st.pendingCharsRead = Math.max(0, Number(st.pendingCharsRead) || 0) + bookTextCharCount(x.t);
+  }
   st.chat.push(m); if (st.chat.length > CHAT_MAX) st.chat.splice(0, st.chat.length - CHAT_MAX);
   // Вставляем весь абзац сразу: геометрия и переносы строк не меняются во время анимации.
   const rendered = draw(m, false), cb = $("#chat");
@@ -1106,48 +1141,37 @@ async function addTyped(k, t, bad, x, my) {
   // CSS проявляет готовый текст за 450 мс; следующий абзац выводится после завершения эффекта.
   await sleep(450);
 }
-/* --- сквозной счётчик страниц электронной книги --- */
+/* --- книжный счётчик: одна страница на каждые 1600 прочитанных символов --- */
 function nodeChapterNo(node, id) {
   const fromData = node && node.chapter && Number(node.chapter.no);
   if (fromData > 0) return fromData;
   const match = String(id || "").match(/^c(\d+)_/);
   return match ? Number(match[1]) : (st && Number(st.currentChapter || st.chap)) || 1;
 }
-function chapterBasePage(chapterNo, node) {
-  const chapter = STORY_DATA.meta.chapters.find(x => Number(x.no) === Number(chapterNo));
-  const metaPage = chapter && String(chapter.pages).match(/\d+/);
-  if (metaPage) return Number(metaPage[0]);
-  const nodePage = node && node.page && String(node.page).match(/\d+/);
-  return nodePage ? Number(nodePage[0]) : 1;
+function pageFromChars(chars) {
+  return Math.max(1, Math.floor(Math.max(0, Number(chars) || 0) / 1600) + 1);
 }
-function clampBookPage(value) {
-  return Math.max(1, Math.min(Number(STORY_DATA.meta.totalPages) || 377, Math.floor(Number(value) || 1)));
-}
-function advanceReadPage() {
-  if (!st) return;
-  st.currentPage = clampBookPage(Number(st.currentPage || 1) + 1);
+function syncPageFromChars() {
+  if (!st) return 1;
+  st.charsRead = Math.max(0, Math.floor(Number(st.charsRead) || 0));
+  st.currentPage = pageFromChars(st.charsRead);
   st.page = st.currentPage;
-  status(); save();
+  return st.currentPage;
 }
-function advanceChoicePage(targetId) {
-  if (!st) return;
-  const targetNode = STORY_DATA.nodes[targetId] || {};
-  const targetChapter = nodeChapterNo(targetNode, targetId);
-  let page = clampBookPage(Number(st.currentPage || 1) + 1);
-  if (targetChapter !== Number(st.currentChapter || st.chap || 1)) {
-    page = Math.max(page, chapterBasePage(targetChapter, targetNode));
-  }
-  st.currentPage = clampBookPage(page);
-  st.currentChapter = targetChapter;
-  st.chap = targetChapter;
-  st.page = st.currentPage;
+function commitReadChars() {
+  if (!st) return 1;
+  const pending = Math.max(0, Math.floor(Number(st.pendingCharsRead) || 0));
+  if (pending) st.charsRead = Math.max(0, Number(st.charsRead) || 0) + pending;
+  st.pendingCharsRead = 0;
+  syncPageFromChars();
   status(); save();
+  return st.currentPage;
 }
 function pgInfo() {
   const M = STORY_DATA.meta;
   const n = STORY_DATA.nodes[st.node] || {};
   const chapterNo = Number(st.currentChapter || st.chap || nodeChapterNo(n, st.node) || 1);
-  return { page: clampBookPage(st.currentPage || st.page || 1), chapterNo, c: M.chapters.find(x => Number(x.no) === chapterNo) || null, total: M.totalPages || 377 };
+  return { page: pageFromChars(st.charsRead), chapterNo, c: M.chapters.find(x => Number(x.no) === chapterNo) || null, total: M.totalPages || 377 };
 }
 function pgTxt() {
   if (!st) return "";
@@ -1186,20 +1210,28 @@ function enter(id) {
   const n = STORY_DATA.nodes[id]; if (!n) { add("sys", "[ОШИБКА: нет узла " + id + "]", true); return; }
   st.node = id; unlockDossiersForNode(id);
   st.currentChapter = nodeChapterNo(n, id); st.chap = st.currentChapter;
-  const nodePageMatch = n.page && String(n.page).match(/\d+/);
-  st.currentPage = clampBookPage(st.currentPage || (nodePageMatch ? Number(nodePageMatch[0]) : 1));
-  st.page = st.currentPage;
-  st.stats.steps++; st.waitDone = false; st.waitUntil = 0; const o = n.onEnter || {};
+  // Глава меняется по узлу, а физическая страница определяется только прочитанными символами.
+  st.currentPage = pageFromChars(st.charsRead); st.page = st.currentPage;
+  st.stats.steps++; st.waitDone = false; st.waitUntil = 0; st.waitMode = null; const o = n.onEnter || {};
   o.hp && res("hp", o.hp); o.o2 && res("o2", o.o2); o.energy && res("en", o.energy); o.ammo && res("ammo", o.ammo);
   const dr = n.drain; if (dr) { dr.energy && res("en", dr.energy); dr.o2 && res("o2", dr.o2); if (st.en <= 0 && !st.dead) { add("sys", STORY_DATA.meta.coldMsg, true); res("hp", -2); } }
   (o.removeItems || []).forEach(it => { const i = st.inv.indexOf(it); if (i >= 0) { st.inv.splice(i, 1); add("sys", "[ИНВЕНТАРЬ: Утрачен «" + it + "»]"); } });
   (o.addItems || []).forEach(give);
   recordFlags(o.addFlags);
   (o.removeFlags || []).forEach(f => st.flags = st.flags.filter(x => x !== f));
-  st.queue = (n.messages || []).filter(m => typeof m === "string" || ((!m.skill || st.skills.includes(m.skill)) && (!m.item || st.inv.includes(m.item)) && (!m.flag || st.flags.includes(m.flag)) && (!m.noFlag || !st.flags.includes(m.noFlag)))).map(m => { const tx = typeof m === "string" ? m : (m.n || m.t || ""); if ((typeof m !== "string" && m.sep) || tx.trim() === "***") return { t: "* * *", k: "sep" }; const ft = fill(tx); if (SPEECH.test(ft)) return { t: ft, k: "spk", f: typeof m === "string" ? undefined : m.from }; return typeof m === "string" ? { t: ft } : { t: ft, n: !!m.n, f: m.from }; });
+  st.paragraphsShownInNode = 0;
+  st.queue = (n.messages || []).filter(m => typeof m === "string" || ((!m.skill || st.skills.includes(m.skill)) && (!m.item || st.inv.includes(m.item)) && (!m.flag || st.flags.includes(m.flag)) && (!m.noFlag || !st.flags.includes(m.noFlag)))).map(m => {
+    const tx = typeof m === "string" ? m : (m.n || m.t || "");
+    if ((typeof m !== "string" && m.sep) || tx.trim() === "***") return { t: "* * *", k: "sep" };
+    let ft = fill(tx);
+    const isDialogue = SPEECH.test(ft) || (typeof m !== "string" && !!m.from);
+    if (isDialogue && !SPEECH.test(ft)) ft = "— " + ft;
+    // Обычный текст всегда книжный нарратив; только прямая речь получает отдельный абзац с тире.
+    return { t: ft, k: isDialogue ? "spk" : "nar", n: !isDialogue && typeof m !== "string" && !!m.n, f: typeof m === "string" ? undefined : m.from };
+  });
   if (n.chapter) { st.chap = n.chapter.no; st.queue.unshift({ k: "hd", t: n.chapter.title, no: n.chapter.no, pages: n.chapter.pages }); }
   { const np = st.queue.filter(isPar).length; st.paged = np > 3; st.pgSizes = st.paged ? chunkSizes(np) : []; st.pgLeft = st.paged ? st.pgSizes.shift() : 0; }
-  st.nextAt = st.queue.length ? Date.now() + (st.mode === "fast" ? 120 : rnd(STORY_DATA.meta.pace.first)) : 0;
+  st.nextAt = 0;
   status(); save(); pump();
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -1216,7 +1248,7 @@ function more(my) {
     const go = () => {
       if (done || my !== run || (window.getSelection && String(window.getSelection()))) return;
       done = true; c.onclick = null; box.innerHTML = ""; holdRun = 0;
-      advanceReadPage(); sfx.page(); res();
+      commitReadChars(); sfx.page(); res();
     };
     const b = el("button", "Читать дальше..."); b.className = "more"; b.onclick = go; c.onclick = go; box.append(b); scrollChatToBottom(); try { b.focus({ preventScroll: true }); } catch (e) {}
   });
@@ -1225,18 +1257,46 @@ async function pump() {
   const my = ++run; skip = false; $("#chat").onclick = null; let first = null, hasParagraph = false; modeBtn(); status(); $("#chs").innerHTML = ""; $("#chs").style.maxHeight = ""; $("#chh").hidden = true; $("#wait").hidden = true;
   while (st.pend.length) { await askDrop(st.pend[0]); if (my !== run) return; }
   while (st.queue.length && !st.dead) {
-    const q = st.queue[0], fast = () => st.mode === "fast", P = STORY_DATA.meta.pace;
-    const cnt = isPar(q); if (cnt) hasParagraph = true;
-    if (st.paged && st.pgLeft <= 0 && st.queue.some(isPar)) { focusChunk(first); first = null; await more(my); if (my !== run) return; st.pgLeft = st.pgSizes.shift() || 3; save(); }
-    if (!st.paged && !st.nextAt) { st.nextAt = Date.now() + (fast() ? 120 : rnd(q.n || q.k ? P.narr : P.msg)); save(); }
-    while (!st.paged && !fast() && !skip && Date.now() < st.nextAt) {
-      const left = st.nextAt - Date.now();
-      $("#typ").textContent = q.n || q.k ? "" : (left < 2200 ? "▌ " + (q.f || st.hero) + " печатает..." : "▌ Приём сигнала...");
-      await sleep(Math.min(100, left)); if (my !== run) return;
+    const q = st.queue[0];
+    const fast = st.mode === "fast";
+    const cnt = isPar(q);
+    if (cnt) hasParagraph = true;
+    if (st.paged && st.pgLeft <= 0 && st.queue.some(isPar)) {
+      focusChunk(first); first = null;
+      await more(my);
+      if (my !== run) return;
+      st.pgLeft = st.pgSizes.shift() || 3; save();
     }
-    $("#typ").textContent = ""; if (skip) { skip = false; st.nextAt = Date.now(); } st.queue.shift(); await addTyped(q.k || (q.n ? "nar" : "in"), q.t, false, q, my); if (my !== run) return; sfx.msg(); if (st.paged && cnt) st.pgLeft--; if (!first) first = $("#chat").lastElementChild;
-    const nx = st.queue[0]; st.nextAt = nx ? (fast() ? Date.now() + 120 : st.nextAt + rnd(nx.n || nx.k ? P.narr : P.msg)) : 0; save();
-    await sleep(fast() ? 60 : 150); if (my !== run) return;
+    // В реалистичном режиме пауза 1,8 секунды ставится перед каждым абзацем,
+    // кроме первого в узле. Тап по тексту пропускает только текущую паузу.
+    if (cnt && !fast && Number(st.paragraphsShownInNode || 0) > 0) {
+      let left = 1800;
+      $("#typ").textContent = "";
+      const pauseEnd = Date.now() + (skip ? 0 : 1800);
+      while (!skip && Date.now() < pauseEnd) {
+        left = pauseEnd - Date.now();
+        await sleep(Math.min(100, left));
+        if (my !== run) return;
+        if (st.mode === "fast") break;
+      }
+      if (my !== run) return;
+      if (skip) skip = false;
+      if (st.mode !== "fast") sfx.signal();
+    }
+    $("#typ").textContent = "";
+    st.queue.shift();
+    const kind = q.k || (SPEECH.test(q.t || "") || q.f ? "spk" : "nar");
+    await addTyped(kind, q.t, false, q, my);
+    if (my !== run) return;
+    if (cnt) {
+      st.paragraphsShownInNode = Math.max(0, Number(st.paragraphsShownInNode) || 0) + 1;
+      if (st.paged) st.pgLeft--;
+    }
+    if (!first) first = $("#chat").lastElementChild;
+    st.nextAt = 0; save();
+    if (cnt && st.mode === "fast") await sleep(0);
+    else if (!cnt) await sleep(40);
+    if (my !== run) return;
   }
   $("#typ").textContent = ""; if (st.dead) return death(my);
   const n = STORY_DATA.nodes[st.node];
@@ -1247,6 +1307,7 @@ async function pump() {
     if (my !== run) return;
     st.waitDone = true;
     st.waitUntil = 0;
+    st.waitMode = null;
     save();
   } else if (hasParagraph && n.choices && n.choices.length) {
     const hint = $("#chh");
@@ -1256,19 +1317,51 @@ async function pump() {
     if (my !== run) return;
     hint.hidden = true;
   }
-  if (n.isEnding) { endBtn(); await sleep(st.mode === "fast" ? 500 : 2000); if (my !== run) return; return showFinal(false); }
+  if (n.isEnding) { commitReadChars(); endBtn(); await sleep(st.mode === "fast" ? 500 : 2000); if (my !== run) return; return showFinal(false); }
+  if (!n.choices || !n.choices.length) commitReadChars();
   choices(n);
 }
 function countdown(n, my) {
   return new Promise(res => {
-    const w = $("#wait"); w.hidden = false;
-    const tick = () => {
-      if (my !== run || st.mode === "fast") { clearInterval(t); w.hidden = true; return res(); }
-      const l = Math.max(0, Math.ceil((st.waitUntil - Date.now()) / 1000));
-      w.textContent = fill(n.waitText || "Связь прервана") + "... " + String(Math.floor(l / 60)).padStart(2, "0") + ":" + String(l % 60).padStart(2, "0");
-      if (l <= 0) { clearInterval(t); w.hidden = true; res(); }
+    const w = $("#wait");
+    w.hidden = false;
+    w.setAttribute("role", "button");
+    w.setAttribute("tabindex", "0");
+    let observedMode = st.mode;
+    const durationForMode = mode => mode === "fast" ? 2000 : Math.max(0, Number(n.waitSeconds) || 0) * 1000;
+    if (!(Number(st.waitUntil) > Date.now()) || st.waitMode !== observedMode) {
+      st.waitUntil = Date.now() + durationForMode(observedMode);
+      st.waitMode = observedMode;
+      save();
+    }
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearInterval(t);
+      w.onclick = null;
+      w.onkeydown = null;
+      w.hidden = true;
+      res();
     };
-    const t = setInterval(tick, 250); tick();
+    w.onclick = finish;
+    w.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); finish(); } };
+    const tick = () => {
+      if (my !== run) return finish();
+      if (st.mode !== observedMode) {
+        observedMode = st.mode;
+        st.waitUntil = Date.now() + durationForMode(observedMode);
+        st.waitMode = observedMode;
+        save();
+      }
+      const left = Math.max(0, Math.ceil((st.waitUntil - Date.now()) / 1000));
+      const baseText = fill(n.waitText || "Ожидание завершения действия");
+      const hint = " · нажмите, чтобы пропустить";
+      w.textContent = baseText + " " + String(Math.floor(left / 60)).padStart(2, "0") + ":" + String(left % 60).padStart(2, "0") + hint;
+      if (left <= 0) finish();
+    };
+    const t = setInterval(tick, 100);
+    tick();
   });
 }
 function choices(n) {
@@ -1340,10 +1433,12 @@ function showInv() {
     st.inv.forEach(i => { const fx = STORY_DATA.items[i]; if (fx) { const b = el("button", "Использовать: " + i + " (" + fx.hint + ")"); b.onclick = () => { useItem(i); showInv(); }; m.append(b); } else m.append(el("p", "• " + i)); }); });
 }
 function pick(c) {
+  // Фиксируем только те абзацы текущего узла, которые действительно показаны игроку.
+  commitReadChars();
   st.stats.choices++; if (c.reqSkill) { st.stats.skills++; if (!st.stats.skillList.includes(c.reqSkill)) st.stats.skillList.push(c.reqSkill); }
   run++; sfx.click(); $("#chs").innerHTML = ""; add("out", fill(c.text));
   c.reqAmmo && res("ammo", -c.reqAmmo); const enCost = c.energyCost || c.enCost || 0; enCost && res("en", -enCost); c.o2Cost && res("o2", -c.o2Cost); c.hpCost && res("hp", -c.hpCost); applyChoice(c);
-  if (st.dead) pump(); else { advanceChoicePage(c.goto); enter(c.goto); }
+  if (st.dead) pump(); else { enter(c.goto); }
 }
 
 /* --- окна --- */
