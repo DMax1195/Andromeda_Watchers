@@ -429,6 +429,12 @@ body {
   #splash .ttl { animation: none; opacity: 1; filter: none; transform: none; }
 }
 
+
+.temporal-line-select{width:100%;max-width:100%;padding:12px 14px;margin:8px 0 12px;border:1px solid rgba(160,190,210,.32);border-radius:12px;background:#111d29;color:#e8edf2;font:inherit}
+.chronology-map{display:flex;flex-direction:column;gap:9px}
+.chronology-map .temporal-branch{margin:0}
+.chronology-map .journal-note{margin:8px 0;padding:10px;border-left:2px solid rgba(150,190,215,.35)}
+.chronology-map button{width:100%;margin-top:8px;white-space:normal}
 </style></head><body>
 
 <div id="loader" class="scr on"><div class="ld-t" id="ldT"></div><div class="ld-bar"><i id="ldbar"></i></div><div id="ldlog"></div><div class="cred" id="ldA"></div></div>
@@ -1596,6 +1602,10 @@ function loadMetaProgress() {
     if (Array.isArray(old) && old.some(id => id && id !== STORY_DATA.meta.deathEnding)) {
       m.routeCompleted = true; m.chronicleUnlocked = true; m.t2Unlocked = true;
     }
+    // Миграция: уже открытая Хронология означает, что первый финал был достигнут.
+    if (m.chronicleUnlocked || m.firstEnding || m.routeCompleted) {
+      localStorage.setItem("andromeda_first_ending_reached", "true");
+    }
   } catch (e) {}
   return m;
 }
@@ -1634,24 +1644,67 @@ function ensureMetaProgress() {
   if (!Array.isArray(metaProgress.t2.pendingReplies)) metaProgress.t2.pendingReplies = [];
   return metaProgress;
 }
+function hasReachedFirstEnding() {
+  try { return localStorage.getItem('andromeda_first_ending_reached') === 'true'; }
+  catch (e) { return false; }
+}
 function isChronicleUnlocked() {
   ensureMetaProgress();
-  return !!metaProgress.chronicleUnlocked;
+  // Единственный ключ доступа — факт первого финала в постоянном хранилище.
+  if (hasReachedFirstEnding()) {
+    metaProgress.routeCompleted = true;
+    metaProgress.chronicleUnlocked = true;
+    metaProgress.t2Unlocked = true;
+    return true;
+  }
+  return false;
 }
 function summarizeDecision(d) {
   return { choiceId: d.choiceId, node: d.node, text: d.text, target: d.target, outcome: d.moment && d.moment.text || "" };
 }
 function summarizeCurrentRun() {
   return {
-    timelineId: Number(st && st.timelineId) || 1,
+    visitedNodes: (st && Array.isArray(st.visitedNodes) ? st.visitedNodes : []).slice(),
+    timelineId: Number(st && (st.activeTimelineId || st.timelineId)) || 1,
     node: st && st.node || "",
     chapter: Number(st && (st.currentChapter || st.chap)) || 1,
     page: Number(st && st.currentPage) || 1,
-    decisions: (st && Array.isArray(st.decisionHistory) ? st.decisionHistory : []).map(summarizeDecision),
+    decisions: (st && Array.isArray(st.decisionHistory) ? st.decisionHistory : []).map((d, i) => ({...d, ...summarizeDecision(d), snapshot:d.snapshot ? JSON.parse(JSON.stringify(d.snapshot)) : null, sequence:Number(d.sequence)||i+1, kind:d.kind||"story", eventId:d.eventId||null})),
     flags: (st && Array.isArray(st.flags) ? st.flags : []).slice(),
+    storyVars: st && st.storyVars ? JSON.parse(JSON.stringify(st.storyVars)) : {},
+    relationships: st && st.relationships ? JSON.parse(JSON.stringify(st.relationships)) : {},
     resources: st ? {hp:st.hp,o2:st.o2,en:st.en,ammo:st.ammo} : {},
-    inventory: st && Array.isArray(st.inv) ? st.inv.slice() : []
+    inventory: st && Array.isArray(st.inv) ? st.inv.slice() : [],
+    storyMoments: st && Array.isArray(st.storyMoments) ? st.storyMoments.map(x => ({...x})) : [],
+    characterFates: st && st.relationships ? JSON.parse(JSON.stringify(st.relationships)) : {},
+    endingState: {dead:!!(st && st.dead), hp:st && st.hp, o2:st && st.o2, en:st && st.en, ammo:st && st.ammo}
   };
+}
+function ensureTimelineState(target = st) {
+  if (!target) return;
+  if (!Array.isArray(target.timelines)) target.timelines = [];
+  const id = Number(target.activeTimelineId || target.timelineId);
+  target.activeTimelineId = Number.isFinite(id) && id > 0 ? Math.floor(id) : 1;
+  target.timelineId = target.activeTimelineId;
+}
+function archiveFirstEndingTimeline(endingId, endingTitle) {
+  if (!st) return null;
+  ensureTimelineState(st);
+  const timelineId = Number(st.activeTimelineId) || 1;
+  const existing = st.timelines.find(x => x && x.timelineId === timelineId && x.endingId === endingId);
+  const route = summarizeCurrentRun();
+  route.endingId = endingId;
+  route.endingTitle = endingTitle || "Завершённая линия";
+  route.completedAt = Date.now();
+  route.status = "completed";
+  if (existing) Object.assign(existing, route);
+  else st.timelines.push(route);
+  try { localStorage.setItem('andromeda_first_ending_reached', 'true'); } catch (e) {}
+  ensureMetaProgress();
+  metaProgress.activeTimelineId = timelineId;
+  saveMetaProgress();
+  save();
+  return route;
 }
 function completeStoryRoute(endingId) {
   if (!st || st.dead) return false;
@@ -1666,7 +1719,9 @@ function completeStoryRoute(endingId) {
     route.completedAt = Date.now();
     metaProgress.completedRoutes.push(route);
   }
-  const firstUnlock = !metaProgress.chronicleUnlocked;
+  const firstUnlock = !hasReachedFirstEnding();
+  const endingTitle = (STORY_DATA.meta.endings[endingId] && STORY_DATA.meta.endings[endingId].title) || endingNode.endingTitle || "Завершённая линия";
+  archiveFirstEndingTimeline(endingId, endingTitle);
   metaProgress.routeCompleted = true;
   metaProgress.chronicleUnlocked = true;
   metaProgress.t2Unlocked = true;
@@ -1738,15 +1793,26 @@ $("#go").onclick = () => {
   sfx.click();
   const h = sel === "custom" ? { name: $("#nm").value.trim(), skills: [...picked], items: STORY_DATA.meta.customHero.items, ammo: STORY_DATA.meta.customHero.ammo } : STORY_DATA.heroes.find(x => x.id === sel);
   ensureMetaProgress();
-  st = { timelineId: Number(metaProgress.activeTimelineId) || 1, hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], itemBuffs: [], itemUseLog: {}, equipment: {}, flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, shownChapterHeader: 0, currentPage: 1, charsRead: 0, pendingCharsRead: 0, pageSchemeVersion: 3, temporalHistoryVersion: 3, chap: 1, page: 1, waitUntil: 0, waitMode: null, waitDone: false, waitWasSkipped: false, notificationsEnabled: false, decisionHistory: [], decisionSequence: 0, storyMoments: [], pendingOutcome: null, realtimeSchedule: [], realtimeInbox: [], realtimeDelivered: [], storyVars: {}, relationships: {}, dead: false };
+  const previousArchive = Array.isArray(st && st.timelines) ? st.timelines : (() => { try { const old = JSON.parse(lsGet(KEY) || "null"); return old && Array.isArray(old.timelines) ? old.timelines : []; } catch (e) { return []; } })();
+  let startingTimelineId = 1;
+  if (hasReachedFirstEnding()) {
+    startingTimelineId = Math.max(2, Number(metaProgress.nextTimelineId) || 2);
+    metaProgress.nextTimelineId = startingTimelineId + 1;
+    metaProgress.activeTimelineId = startingTimelineId;
+    saveMetaProgress();
+  } else {
+    metaProgress.activeTimelineId = 1;
+  }
+  st = { timelineId: startingTimelineId, activeTimelineId: startingTimelineId, timelines: previousArchive, hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], itemBuffs: [], itemUseLog: {}, equipment: {}, flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, shownChapterHeader: 0, currentPage: 1, charsRead: 0, pendingCharsRead: 0, pageSchemeVersion: 3, temporalHistoryVersion: 3, chap: 1, page: 1, waitUntil: 0, waitMode: null, waitDone: false, waitWasSkipped: false, notificationsEnabled: false, decisionHistory: [], decisionSequence: 0, storyMoments: [], pendingOutcome: null, realtimeSchedule: [], realtimeInbox: [], realtimeDelivered: [], storyVars: {}, relationships: {}, dead: false };
   applyT2Carryover(st);
   $("#chat").innerHTML = ""; show("game"); status(); enter(STORY_DATA.meta.start);
 };
 $("#cont").onclick = () => {
   st = JSON.parse(lsGet(KEY));
   ensureMetaProgress();
-  ensureItemState(); ensureDecisionState(); ensureRealtimeState(); ensureStoryState();
+  ensureItemState(); ensureDecisionState(); ensureRealtimeState(); ensureStoryState(); ensureTimelineState(st);
   if (!Number.isFinite(Number(st.timelineId)) || Number(st.timelineId) < 1) st.timelineId = Number(metaProgress.activeTimelineId) || 1;
+  st.activeTimelineId = Number(st.timelineId) || 1;
   if (!Array.isArray(st.inv)) st.inv = [];
   if (!Array.isArray(st.pend)) st.pend = [];
   if (!Array.isArray(st.pend)) st.pend = [];
@@ -1837,6 +1903,7 @@ $("#cont").onclick = () => {
   migrateDossiersForLegacySave();
   ensureRealtimeState();
   applyT2Carryover(st);
+  ensureTimelineState(st);
 
   // Старые сохранения могли хранить обычные абзацы как сообщения с подписью героя.
   // Переводим их в книжный стиль; реальные реплики оставляем с тире.
@@ -2178,6 +2245,7 @@ function res(k, d) {
 }
 function give(it) { ensureItemState(); if (st.inv.length < MAXINV) { st.inv.push(it); add("sys", "[ИНВЕНТАРЬ: Получен «" + it + "»]"); } else { st.pend.push(it); save(); } status(); }
 function ensureDecisionState() {
+  ensureTimelineState(st);
   if (!Array.isArray(st.decisionHistory)) st.decisionHistory = [];
   if (!Array.isArray(st.storyMoments)) st.storyMoments = [];
   if (!st.pendingOutcome || typeof st.pendingOutcome !== 'object') st.pendingOutcome = null;
@@ -2222,18 +2290,23 @@ function archiveAbandonedTimeline(index, oldHistory) {
   const entry = oldHistory[index];
   if (!entry) return null;
   const branch = {
-    id: Number(metaProgress.nextTimelineId) || 2,
-    sourceTimelineId: Number(st.timelineId) || 1,
+    id: Number(st.activeTimelineId || st.timelineId) || 1,
+    archiveId: "archive-" + (Number(st.activeTimelineId || st.timelineId) || 1) + "-" + Date.now(),
+    sourceTimelineId: Number(st.activeTimelineId || st.timelineId) || 1,
+    forkedIntoTimelineId: Number(metaProgress.nextTimelineId) || 2,
     forkNode: entry.node,
+    forkSnapshot: JSON.parse(JSON.stringify(entry.snapshot)),
     changedChoice: entry.text,
     forkChoiceId: entry.choiceId,
     sharedDecisionCount: index,
     abandonedAt: Date.now(),
     endingNode: st.node || "",
     endingChapter: Number(st.currentChapter || st.chap) || 1,
+    visitedNodes: (st.visitedNodes || []).slice(),
     // Сохраняем общий префикс и отвергнутую ветку, чтобы можно было сравнить весь путь.
     decisions: oldHistory.map((d, i) => ({
-      ...summarizeDecision(d), sequence: Number(d.sequence) || i + 1,
+      ...d, ...summarizeDecision(d), snapshot:d.snapshot ? JSON.parse(JSON.stringify(d.snapshot)) : null,
+      sequence: Number(d.sequence) || i + 1,
       timelineId: Number(d.timelineId) || Number(st.timelineId) || 1,
       kind: d.kind || "story", relation: i < index ? "shared" : "abandoned"
     })),
@@ -2244,10 +2317,13 @@ function archiveAbandonedTimeline(index, oldHistory) {
       node: st.node || "",
       hp: st.hp, o2: st.o2, en: st.en, ammo: st.ammo,
       flags: (st.flags || []).slice(), inventory: (st.inv || []).slice(),
-      unreadMessages: (st.realtimeInbox || []).filter(x => !x.read && !x.answered).length
+      unreadMessages: (st.realtimeInbox || []).filter(x => !x.read && !x.answered).length,
+      relationships: JSON.parse(JSON.stringify(st.relationships || {})),
+      storyVars: JSON.parse(JSON.stringify(st.storyVars || {})),
+      inventory: (st.inv || []).slice()
     }
   };
-  metaProgress.nextTimelineId = branch.id + 1;
+  // nextTimelineId резервируется rewindDecision для новой активной ветки.
   metaProgress.alternateLines.unshift(branch);
   // Архивы альтернативных прохождений не обрезаются по числу линий.
   saveMetaProgress();
@@ -2265,6 +2341,9 @@ function rewindDecision(index) {
   archiveAbandonedTimeline(index, oldHistory);
   const previous = oldHistory.slice(0, index);
   const restored = JSON.parse(JSON.stringify(entry.snapshot));
+  // Архив уже завершённых временных линий — метаистория; откат решения
+  // не должен стирать её, даже если снимок был сделан до первого финала.
+  const preservedTimelines = Array.isArray(st.timelines) ? JSON.parse(JSON.stringify(st.timelines)) : [];
   ensureMetaProgress();
   const newTimelineId = Number(metaProgress.nextTimelineId) || 2;
   metaProgress.nextTimelineId = newTimelineId + 1;
@@ -2272,6 +2351,9 @@ function rewindDecision(index) {
   saveMetaProgress();
   st = restored;
   st.timelineId = newTimelineId;
+  st.activeTimelineId = newTimelineId;
+  st.timelines = preservedTimelines;
+  ensureTimelineState(st);
   if (Array.isArray(st.realtimeSchedule)) st.realtimeSchedule.forEach(ev => { ev.timelineId = newTimelineId; });
   if (Array.isArray(st.realtimeInbox)) st.realtimeInbox.forEach(ev => { ev.timelineId = newTimelineId; });
   st.decisionHistory = previous;
@@ -2563,7 +2645,10 @@ function enter(id) {
       return true;
     });
   }
-  st.node = id; unlockDossiersForNode(id);
+  st.node = id;
+  if (!Array.isArray(st.visitedNodes)) st.visitedNodes = [];
+  if (!st.visitedNodes.includes(id)) st.visitedNodes.push(id);
+  unlockDossiersForNode(id);
   scheduleNodeRealtimeEvents(id, n);
   st.currentChapter = nodeChapterNo(n, id); st.chap = st.currentChapter;
   // Глава меняется по узлу, а физическая страница определяется только прочитанными символами.
@@ -3072,7 +3157,7 @@ function viewArchivedTimeline(branch) {
   if (!branch) return;
   modal(m => {
     m.append(el("h3", "АРХИВ ВРЕМЕННОЙ ЛИНИИ №" + branch.id));
-    m.append(el("p", "Точка расхождения: " + branch.forkNode + " · " + (branch.changedChoice || "решение не указано")));
+    m.append(el("p", "Точка расхождения: " + branch.forkNode + " · " + (branch.changedChoice || "решение не указано") + " · новая ветка: №" + (branch.forkedIntoTimelineId || "—")));
     m.append(el("p", "Оставленная линия была прервана в сцене " + (branch.endingNode || "неизвестной сцены") + ", глава " + (branch.endingChapter || "—") + "."));
     m.append(el("h3", "Полный путь · общая часть и отвергнутая ветка"));
     const sharedCount = Number.isFinite(Number(branch.sharedDecisionCount)) ? Number(branch.sharedDecisionCount) : 0;
@@ -3123,9 +3208,138 @@ function viewCompletedRoute(route) {
     m.append(el("h3", "Выбранный путь"));
     (route.decisions || []).forEach((d,i) => { const p=el("p", (i+1)+". "+d.node+": "+d.text+(d.outcome ? "\nПоследствие: "+d.outcome : "")); p.className="journal-note"; m.append(p); });
     if (Array.isArray(route.flags) && route.flags.length) { m.append(el("h3", "Ключевые флаги")); route.flags.forEach(f => { const label=STORY_DATA.meta.flagNames[f] || f; const p=el("p", "✦ "+label); p.className="journal-note"; m.append(p); }); }
+    if (route.relationships && Object.keys(route.relationships).length) {
+      m.append(el("h3", "Отношения и судьбы персонажей"));
+      Object.entries(route.relationships).forEach(([name,value]) => m.append(el("p", name + ": " + value)));
+    }
+    if (route.storyVars && Object.keys(route.storyVars).length) {
+      m.append(el("h3", "Сюжетные состояния"));
+      Object.entries(route.storyVars).forEach(([name,value]) => m.append(el("p", name + ": " + (typeof value === "object" ? JSON.stringify(value) : String(value)))));
+    }
+    if (Array.isArray(route.storyMoments) && route.storyMoments.length) {
+      m.append(el("h3", "Зафиксированные последствия"));
+      route.storyMoments.forEach(moment => m.append(el("p", moment.text || "")));
+    }
     const r=route.resources||{};
     m.append(el("h3", "Состояние в финале"));
     m.append(el("p", "Жизненная сила: "+(r.hp??"—")+" · Ясность: "+(r.o2??"—")+" · Свет: "+(r.en??"—")+" · Слова: "+(r.ammo??"—")));
+  });
+}
+
+
+function chronologyChapter(nodeId) {
+  const match = String(nodeId || "").match(/^c(\d+)_/i);
+  return match ? Math.max(1, Math.min(19, Number(match[1]))) : null;
+}
+
+function forkFromSavedTimeline(line, decisionIndex) {
+  if (!isChronicleUnlocked() || !line || !Array.isArray(line.decisions)) return false;
+  const entry = line.decisions[decisionIndex];
+  if (!entry || !entry.snapshot) return false;
+  ensureMetaProgress();
+  if (!Array.isArray(metaProgress.pausedLines)) metaProgress.pausedLines = [];
+  // Keep the currently active run intact so the player can return to it later.
+  if (st) {
+    metaProgress.pausedLines.unshift({
+      timelineId:Number(st.activeTimelineId || st.timelineId) || 1,
+      pausedAt:Date.now(),
+      currentSnapshot:JSON.parse(JSON.stringify(st)),
+      ...summarizeCurrentRun()
+    });
+  }
+  const restored=JSON.parse(JSON.stringify(entry.snapshot));
+  const newId=Number(metaProgress.nextTimelineId)||2;
+  metaProgress.nextTimelineId=newId+1;
+  metaProgress.activeTimelineId=newId;
+  saveMetaProgress();
+  st=restored;
+  st.timelineId=newId; st.activeTimelineId=newId;
+  ensureTimelineState(st);
+  st.decisionHistory=line.decisions.slice(0,decisionIndex).map(d=>JSON.parse(JSON.stringify(d)));
+  st.storyMoments=st.decisionHistory.map(d=>d.moment).filter(Boolean);
+  st.pendingOutcome=null;
+  st.chat=Array.isArray(entry.excerpt)?entry.excerpt:[];
+  st.queue=[]; st.pend=[]; st.nextAt=0; st.waitUntil=0; st.waitMode=null; st.waitDone=true;
+  st.node=entry.node;
+  if (Array.isArray(st.realtimeSchedule)) st.realtimeSchedule.forEach(ev=>{ev.timelineId=newId;});
+  if (Array.isArray(st.realtimeInbox)) st.realtimeInbox.forEach(ev=>{ev.timelineId=newId;});
+  applyT2Carryover(st);
+  run++; skip=false; holdRun=0;
+  $('#modal').classList.remove('on'); $('#modal').setAttribute('aria-hidden','true');
+  $('#chat').innerHTML=''; st.chat.forEach(draw);
+  add('sys','[ХРОНОЛОГИЯ: создана линия №'+newId+' из сохранённой линии №'+(line.timelineId||line.id||'—')+'. Состояние восстановлено точно до выбранного решения.]');
+  show('game'); status(); save(); choices(STORY_DATA.nodes[st.node]); armRealtimeScheduler();
+  return true;
+}
+function resumePausedTimeline(line) {
+  if (!line || !line.currentSnapshot) return false;
+  const current=st ? JSON.parse(JSON.stringify(st)) : null;
+  if (current) {
+    ensureMetaProgress();
+    if (!Array.isArray(metaProgress.pausedLines)) metaProgress.pausedLines=[];
+    metaProgress.pausedLines.unshift({timelineId:Number(st.timelineId)||1,pausedAt:Date.now(),currentSnapshot:current,...summarizeCurrentRun()});
+  }
+  st=JSON.parse(JSON.stringify(line.currentSnapshot));
+  st.timelineId=Number(line.timelineId)||1; st.activeTimelineId=st.timelineId;
+  ensureTimelineState(st);
+  metaProgress.activeTimelineId=st.timelineId; saveMetaProgress();
+  $('#modal').classList.remove('on'); $('#modal').setAttribute('aria-hidden','true');
+  $('#chat').innerHTML=''; (st.chat||[]).forEach(draw);
+  show('game'); status(); save(); choices(STORY_DATA.nodes[st.node]); armRealtimeScheduler();
+  return true;
+}
+
+function viewChronologyLine(line, label) {
+  if (!line) return;
+  const decisions = Array.isArray(line.decisions) ? line.decisions : [];
+  const moments = Array.isArray(line.storyMoments) ? line.storyMoments : [];
+  const relationships = line.relationships || line.endpoint?.relationships || {};
+  const vars = line.storyVars || line.endpoint?.storyVars || {};
+  modal(m => {
+    m.append(el("h3", "ХРОНОЛОГИЯ · " + (label || ("Линия №" + (line.timelineId || line.id || "—")))));
+    m.append(el("p", (line.endingTitle || "Сохранённый путь") + (line.endingId ? " · " + line.endingId : "") + " · решений: " + decisions.length));
+    const byChapter = new Map();
+    const visitedNodeIds = Array.isArray(line.visitedNodes) ? line.visitedNodes : decisions.map(d => d.node).filter(Boolean);
+    const visitedByChapter = new Map();
+    visitedNodeIds.forEach(nodeId => { const ch=chronologyChapter(nodeId)||1; if(!visitedByChapter.has(ch)) visitedByChapter.set(ch,[]); visitedByChapter.get(ch).push(nodeId); });
+    decisions.forEach((d, i) => {
+      const ch = chronologyChapter(d.node) || 1;
+      if (!byChapter.has(ch)) byChapter.set(ch, []);
+      byChapter.get(ch).push({...d, _index:i});
+    });
+    m.append(el("h3", "Карта пройденных глав · 1–19"));
+    for (let ch = 1; ch <= 19; ch++) {
+      const rows = byChapter.get(ch) || [];
+      const section = el("section", ""); section.className = "temporal-branch";
+      const nodes = visitedByChapter.get(ch) || [];
+      section.append(el("b", "Глава " + ch + (nodes.length || rows.length ? " · пройдена" : " · пока не посещалась")));
+      if (nodes.length) { const p=el("p", "Пройденные узлы: "+nodes.join(" → ")); p.className="journal-note"; section.append(p); }
+      if (rows.length) rows.forEach(d => {
+        const p = el("p", (d.node || "сцена") + " — " + (d.text || "решение") + (d.outcome ? "\nПоследствие: " + d.outcome : ""));
+        p.className = "journal-note"; section.append(p);
+        if (d.snapshot) {
+          const change=el("button","Изменить решение в этой точке"); change.type="button";
+          change.onclick=()=>forkFromSavedTimeline(line,d._index); section.append(change);
+        }
+      });
+      m.append(section);
+    }
+    if (moments.length) {
+      m.append(el("h3", "Последствия решений"));
+      moments.forEach(x => m.append(el("p", x.text || String(x))));
+    }
+    if (Object.keys(relationships).length) {
+      m.append(el("h3", "Судьбы и отношения персонажей"));
+      Object.entries(relationships).forEach(([k,v]) => m.append(el("p", k + ": " + v)));
+    }
+    if (Object.keys(vars).length) {
+      m.append(el("h3", "Сюжетные состояния"));
+      Object.entries(vars).forEach(([k,v]) => m.append(el("p", k + ": " + (typeof v === "object" ? JSON.stringify(v) : String(v)))));
+    }
+    const r = line.resources || line.endpoint || {};
+    m.append(el("h3", "Состояние Аэ́рхиса"));
+    m.append(el("p", "Жизненная сила: " + (r.hp ?? "—") + " · Ясность: " + (r.o2 ?? "—") + " · Свет: " + (r.en ?? "—") + " · Слова: " + (r.ammo ?? "—")));
+    if (Array.isArray(r.inventory) && r.inventory.length) m.append(el("p", "Инвентарь: " + r.inventory.join(", ")));
   });
 }
 
@@ -3158,8 +3372,69 @@ function openJournal() {
     ensureMetaProgress();
     const temporal = el("section", ""); temporal.className = "temporal-panel" + (isChronicleUnlocked() ? "" : " temporal-locked");
     temporal.append(el("strong", isChronicleUnlocked() ? "РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ · РАЗБЛОКИРОВАН" : "РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ · ЗАБЛОКИРОВАН"));
-    temporal.append(el("p", isChronicleUnlocked() ? "Теперь можно вернуться к любому сохранённому решению этой линии, изменить его и пройти историю заново с этой точки. Предыдущая версия пути сохраняется в архиве с решениями и последними сообщениями." : "Сначала завершите одну полноценную сюжетную линию. После первого финала откроется возможность менять любое прошлое решение и сравнивать альтернативные линии."));
+    temporal.append(el("p", isChronicleUnlocked() ? "Теперь можно вернуться к любому сохранённому решению этой линии, изменить его и пройти историю заново с этой точки. Предыдущая версия пути сохраняется в архиве с решениями, судьбами персонажей и сообщениями." : "Откроется после первого финала"));
     m.append(temporal);
+    ensureTimelineState(st);
+    m.append(el("h3", "Архив временных линий"));
+    if (!st.timelines.length) m.append(el("p", "Первый завершённый путь появится здесь после достижения финала."));
+    st.timelines.slice().reverse().forEach(line => {
+      const card = el("section", ""); card.className = "temporal-branch";
+      card.append(el("b", "Линия №" + line.timelineId + " · " + (line.endingTitle || "Завершённая линия")));
+      card.append(el("small", "Финал: " + (line.endingId || "—") + " · решений: " + ((line.decisions || []).length) + " · завершена: " + new Date(line.completedAt || 0).toLocaleString()));
+      card.append(el("p", "Сохранены выборы, сюжетные флаги, отношения и состояния персонажей, ресурсы, сообщения и последствия этой ветки."));
+      const b = el("button", "Посмотреть завершённую временную линию"); b.type = "button"; b.onclick = () => viewCompletedRoute(line); card.append(b);
+      m.append(card);
+    });
+    m.append(el("h3", "Переключение временных линий"));
+    const lineChoices = [];
+    (st.timelines || []).forEach(line => lineChoices.push({key:"saved:"+line.timelineId+":"+line.endingId, label:"Линия №"+line.timelineId+" · "+(line.endingTitle || "финал"), data:line}));
+    (metaProgress.completedRoutes || []).forEach((line,i) => lineChoices.push({key:"completed:"+i, label:"Линия №"+(line.timelineId || "—")+" · "+(line.endingTitle || "завершена"), data:line}));
+    (metaProgress.alternateLines || []).forEach(line => lineChoices.push({key:"alternate:"+(line.archiveId || line.id), label:"Архив линии №"+line.id+" → ответвление №"+(line.forkedIntoTimelineId || "—"), data:line}));
+    (metaProgress.pausedLines || []).forEach((line,i) => lineChoices.push({key:"paused:"+i, label:"Приостановленная линия №"+line.timelineId, data:line}));
+    const lineSelect = document.createElement("select");
+    lineSelect.className = "temporal-line-select";
+    const activeOption = document.createElement("option");
+    activeOption.value = "active"; activeOption.textContent = "Текущая линия №"+(st.activeTimelineId || st.timelineId || 1);
+    lineSelect.append(activeOption);
+    lineChoices.forEach(item => { const option=document.createElement("option"); option.value=item.key; option.textContent=item.label; lineSelect.append(option); });
+    lineSelect.onchange = () => {
+      if (lineSelect.value === "active") return;
+      const selected = lineChoices.find(x => x.key === lineSelect.value);
+      if (selected && selected.key.startsWith("paused:")) {
+        modal(m=>{m.append(el("h3",selected.label));m.append(el("p","Эта линия была приостановлена, когда вы ответвились от неё. Можно продолжить её с сохранённого состояния."));const b=el("button","Продолжить эту временную линию");b.type="button";b.onclick=()=>resumePausedTimeline(selected.data);m.append(b);});
+      } else if (selected) viewChronologyLine(selected.data, selected.label);
+      lineSelect.value = "active";
+    };
+    m.append(lineSelect);
+    m.append(el("p", "Выберите сохранённую линию, чтобы сравнить пройденные главы, решения, последствия и состояние персонажей. Просмотр архива не изменяет активное прохождение."));
+    m.append(el("h3", "Карта пройденных узлов · главы 1–19"));
+    const chapterMap = el("div", ""); chapterMap.className = "dossier-list chronology-map";
+    const mapDecisions = Array.isArray(st.decisionHistory) ? st.decisionHistory : [];
+    const visitedNodeIds = Array.isArray(st.visitedNodes) ? st.visitedNodes : [];
+    const visited = new Set([...visitedNodeIds.map(chronologyChapter), ...mapDecisions.map(d => chronologyChapter(d.node))].filter(Boolean));
+    const currentChapter = Number(st.currentChapter || st.chap) || chronologyChapter(st.node);
+    if (currentChapter) visited.add(currentChapter);
+    for (let ch=1; ch<=19; ch++) {
+      const chapterCard=el("section",""); chapterCard.className="temporal-branch";
+      chapterCard.append(el("b", "Глава "+ch+(visited.has(ch)?" · посещена":" · ещё не открыта")));
+      const chapterNodes=visitedNodeIds.filter(nodeId=>chronologyChapter(nodeId)===ch);
+      if (chapterNodes.length) chapterCard.append(el("small", "Пройденные узлы: "+chapterNodes.join(" → ")));
+      const rows=mapDecisions.map((d,i)=>({...d,_index:i})).filter(d=>(chronologyChapter(d.node)||1)===ch);
+      if (!chapterNodes.length && !rows.length) chapterCard.append(el("small", "Узлы и решения появятся здесь после прохождения соответствующей главы."));
+      rows.forEach(d=>{
+        const item=el("div",""); item.className="journal-note";
+        item.append(el("b", d.node || "Сюжетный узел"));
+        item.append(el("p", d.text || "Принятое решение"));
+        if (d.moment && d.moment.text) item.append(el("small","Последствие: "+d.moment.text));
+        const change=el("button", "Изменить решение в этой точке"); change.type="button";
+        change.disabled=!isChronicleUnlocked() || !d.snapshot;
+        change.textContent=isChronicleUnlocked()?"Изменить решение в этой точке":"Откроется после первого финала";
+        change.onclick=()=>rewindDecision(d._index);
+        item.append(change); chapterCard.append(item);
+      });
+      chapterMap.append(chapterCard);
+    }
+    m.append(chapterMap);
     m.append(el("h3", "История решений · изменить любой прошлый выбор"));
     const decisions = Array.isArray(st.decisionHistory) ? st.decisionHistory : [];
     m.append(el("p", "В этой временной линии сохранено решений: " + decisions.length + ". История не обрезается по фиксированному числу: можно вернуться к любому сохранённому выбору после разблокировки Хронологии."));
