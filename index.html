@@ -1738,14 +1738,14 @@ $("#go").onclick = () => {
   sfx.click();
   const h = sel === "custom" ? { name: $("#nm").value.trim(), skills: [...picked], items: STORY_DATA.meta.customHero.items, ammo: STORY_DATA.meta.customHero.ammo } : STORY_DATA.heroes.find(x => x.id === sel);
   ensureMetaProgress();
-  st = { timelineId: Number(metaProgress.activeTimelineId) || 1, hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], itemBuffs: [], itemUseLog: {}, equipment: {}, flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, shownChapterHeader: 0, currentPage: 1, charsRead: 0, pendingCharsRead: 0, pageSchemeVersion: 3, temporalHistoryVersion: 3, chap: 1, page: 1, waitUntil: 0, waitMode: null, waitDone: false, waitWasSkipped: false, notificationsEnabled: false, decisionHistory: [], decisionSequence: 0, storyMoments: [], pendingOutcome: null, realtimeSchedule: [], realtimeInbox: [], realtimeDelivered: [], dead: false };
+  st = { timelineId: Number(metaProgress.activeTimelineId) || 1, hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], itemBuffs: [], itemUseLog: {}, equipment: {}, flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, shownChapterHeader: 0, currentPage: 1, charsRead: 0, pendingCharsRead: 0, pageSchemeVersion: 3, temporalHistoryVersion: 3, chap: 1, page: 1, waitUntil: 0, waitMode: null, waitDone: false, waitWasSkipped: false, notificationsEnabled: false, decisionHistory: [], decisionSequence: 0, storyMoments: [], pendingOutcome: null, realtimeSchedule: [], realtimeInbox: [], realtimeDelivered: [], storyVars: {}, relationships: {}, dead: false };
   applyT2Carryover(st);
   $("#chat").innerHTML = ""; show("game"); status(); enter(STORY_DATA.meta.start);
 };
 $("#cont").onclick = () => {
   st = JSON.parse(lsGet(KEY));
   ensureMetaProgress();
-  ensureItemState(); ensureDecisionState(); ensureRealtimeState();
+  ensureItemState(); ensureDecisionState(); ensureRealtimeState(); ensureStoryState();
   if (!Number.isFinite(Number(st.timelineId)) || Number(st.timelineId) < 1) st.timelineId = Number(metaProgress.activeTimelineId) || 1;
   if (!Array.isArray(st.inv)) st.inv = [];
   if (!Array.isArray(st.pend)) st.pend = [];
@@ -2082,8 +2082,85 @@ function updateJournalBadge() {
   btn.setAttribute("aria-label", unread ? "Открыть журнал, новых записей: " + unread : "Открыть журнал");
   btn.title = unread ? "Журнал · новых записей: " + unread : "Журнал";
 }
+/* --- сквозное состояние сюжета: отношения и переменные сохраняются между главами и линиями --- */
+const STORY_RELATION_LABELS = {
+  brandt:"Капитан Брандт", holger:"Хольгер", ingrid:"Ингрид Вальк",
+  theo:"Тео", marta:"Марта", sven:"Свен Линд", olaf:"Олаф",
+  henrik:"Хенрик", ragnar:"Рагнар Торвальдсен", astrid:"Астрид Сольберг",
+  sigurd:"Сигурд", knut:"Кнут"
+};
+function ensureStoryState(target = st) {
+  if (!target) return;
+  if (!target.storyVars || typeof target.storyVars !== "object") target.storyVars = {};
+  if (!target.relationships || typeof target.relationships !== "object") target.relationships = {};
+  Object.keys(STORY_RELATION_LABELS).forEach(key => {
+    const value = Number(target.relationships[key]);
+    target.relationships[key] = Number.isFinite(value) ? Math.max(-100, Math.min(100, value)) : 0;
+  });
+}
+function applyStoryEffects(effect, source = "story") {
+  if (!st || !effect) return;
+  ensureStoryState();
+  const changes = effect.relationshipChanges || effect.relations || {};
+  Object.entries(changes).forEach(([key, amount]) => {
+    if (!(key in STORY_RELATION_LABELS)) return;
+    const delta = Number(amount) || 0;
+    st.relationships[key] = Math.max(-100, Math.min(100, Number(st.relationships[key] || 0) + delta));
+  });
+  const sets = effect.setVars || {};
+  Object.entries(sets).forEach(([key, value]) => { st.storyVars[key] = value; });
+  const adds = effect.addVars || {};
+  Object.entries(adds).forEach(([key, value]) => {
+    const before = Number(st.storyVars[key]) || 0;
+    st.storyVars[key] = before + (Number(value) || 0);
+  });
+  const removes = [].concat(effect.removeVars || []);
+  removes.forEach(key => { delete st.storyVars[key]; });
+}
+function storyConditionsMet(rule) {
+  if (!rule || !st) return true;
+  ensureStoryState();
+  const requiredVars = rule.requiresVars || rule.requireVars || {};
+  for (const [key, expected] of Object.entries(requiredVars)) {
+    const actual = st.storyVars[key];
+    if (Array.isArray(expected) ? !expected.includes(actual) : actual !== expected) return false;
+  }
+  const forbiddenVars = rule.forbidsVars || {};
+  for (const [key, expected] of Object.entries(forbiddenVars)) {
+    const actual = st.storyVars[key];
+    if (Array.isArray(expected) ? expected.includes(actual) : actual === expected) return false;
+  }
+  const relRules = rule.requiresRelationship || rule.relationships || {};
+  for (const [key, bounds] of Object.entries(relRules)) {
+    if (!(key in STORY_RELATION_LABELS)) return false;
+    const score = Number(st.relationships[key] || 0);
+    if (typeof bounds === "number" && score < bounds) return false;
+    if (bounds && typeof bounds === "object") {
+      if (bounds.min != null && score < Number(bounds.min)) return false;
+      if (bounds.max != null && score > Number(bounds.max)) return false;
+    }
+  }
+  return true;
+}
+const RELATIONSHIP_FLAG_EFFECTS = {
+  ДОВЕРИЕ_ВРАЧА: {ingrid:2}, ИНТЕРЕС_ТЕО: {theo:1},
+  СОЮЗ_С_КАПИТАНОМ: {brandt:2}, ДОВЕРИЕ_БРАНДТА: {brandt:2},
+  ДОВЕРИЛ_ПЕРЕГОВОРЫ_БРАНДТУ: {brandt:1}, ПОМОГ_СВЕНУ: {sven:2},
+  СОЮЗ_С_ТЕО: {theo:2}, ТЕО_ДОВЕРЯЕТ: {theo:2},
+  СПАС_КОРАБЛЬ_С_ХОЛЬГЕРОМ: {holger:2}, СОВЕТ_ХЕНРИКА: {henrik:1},
+  СОЮЗ_С_АСТРИД: {astrid:2}, ДОВЕРИЕ_СИГУРДА: {sigurd:2}, ВЫЛЕЧИЛ_КНУТА: {knut:2}
+};
 function recordFlags(list) {
-  (list || []).forEach(f => { if (f && !st.flags.includes(f)) st.flags.push(f); });
+  ensureStoryState();
+  (list || []).forEach(f => {
+    if (!f || st.flags.includes(f)) return;
+    st.flags.push(f);
+    const effects = RELATIONSHIP_FLAG_EFFECTS[f] || {};
+    Object.entries(effects).forEach(([key, amount]) => {
+      if (!(key in STORY_RELATION_LABELS)) return;
+      st.relationships[key] = Math.max(-100, Math.min(100, Number(st.relationships[key] || 0) + Number(amount || 0)));
+    });
+  });
   updateJournalBadge();
 }
 function status() {
@@ -2256,7 +2333,9 @@ function scheduleNodeRealtimeEvents(nodeId, node) {
     st.realtimeSchedule.push({
       eventKey, eventId:String(event.id), nodeId:String(nodeId), timelineId:Number(st.timelineId)||1,
       title:String(event.title || "Входящее сообщение"), text:String(event.text || "Есть новое сообщение."),
-      choices:Array.isArray(event.choices) ? event.choices : [], dueAt:Date.now()+delay, scheduledAt:Date.now(), read:false, answered:false
+      choices:Array.isArray(event.choices) ? event.choices : [], onMissed:event.onMissed || null,
+      deadlineMs:Math.max(0, Number(event.responseDeadlineMs) || (((Number(event.responseDeadlineHours)||0)*3600 + (Number(event.responseDeadlineMinutes)||0)*60 + (Number(event.responseDeadlineSeconds)||0))*1000)),
+      dueAt:Date.now()+delay, scheduledAt:Date.now(), read:false, answered:false
     });
   });
   if (st.realtimeSchedule.length > TEMPORAL_RULES.maxScheduledEvents) st.realtimeSchedule = st.realtimeSchedule.slice(-TEMPORAL_RULES.maxScheduledEvents);
@@ -2279,7 +2358,7 @@ function processRealtimeQueue() {
     st.realtimeSchedule = st.realtimeSchedule.filter(x => !dueKeys.has(x.eventKey));
     due.forEach(ev => {
       if (st.realtimeInbox.some(x => x.eventKey === ev.eventKey)) return;
-      const received = {...ev, receivedAt:now, read:false, answered:false};
+      const received = {...ev, receivedAt:now, deadlineAt: ev.deadlineMs > 0 ? now + ev.deadlineMs : 0, read:false, answered:false};
       st.realtimeInbox.push(received);
       st.realtimeDelivered.push(ev.eventKey);
       add("sys", "[НОВОЕ СООБЩЕНИЕ: " + ev.title + "]");
@@ -2288,10 +2367,25 @@ function processRealtimeQueue() {
     st.realtimeInbox = st.realtimeInbox.slice(-TEMPORAL_RULES.maxInboxEvents);
     st.realtimeDelivered = st.realtimeDelivered.slice(-TEMPORAL_RULES.maxDeliveredEventKeys);
   }
+  processExpiredRealtimeEvents(now);
   processT2Replies(now);
   updateJournalBadge();
   save();
   armRealtimeScheduler();
+}
+function processExpiredRealtimeEvents(now = Date.now()) {
+  if (!st || !Array.isArray(st.realtimeInbox)) return;
+  st.realtimeInbox.forEach(ev => {
+    if (!ev || ev.answered || ev.missed || !Number(ev.deadlineAt) || now < Number(ev.deadlineAt)) return;
+    ev.missed = true; ev.missedAt = now;
+    applyStoryEffects(ev.onMissed || {}, "realtime-missed");
+    const miss = ev.onMissed || {};
+    if (miss.addFlags) recordFlags(miss.addFlags);
+    (miss.removeFlags || []).forEach(flag => { st.flags = st.flags.filter(x => x !== flag); });
+    (miss.addItems || []).forEach(give);
+    (miss.removeItems || []).forEach(item => removeInventoryItem(item, true));
+    add("sys", "[СРОК ОТВЕТА ИСТЁК: " + (ev.title || "сообщение") + ". Последствие пропущенного события сохранено.]");
+  });
 }
 function processT2Replies(now = Date.now()) {
   ensureMetaProgress();
@@ -2315,6 +2409,7 @@ function armRealtimeScheduler() {
   if (realtimeTimer) { clearTimeout(realtimeTimer); realtimeTimer = 0; }
   const deadlines = [];
   if (st && Array.isArray(st.realtimeSchedule)) st.realtimeSchedule.forEach(x => { if (Number(x.dueAt) > 0) deadlines.push(Number(x.dueAt)); });
+  if (st && Array.isArray(st.realtimeInbox)) st.realtimeInbox.forEach(x => { if (!x.answered && !x.missed && Number(x.deadlineAt) > 0) deadlines.push(Number(x.deadlineAt)); });
   ensureMetaProgress();
   if (Array.isArray(metaProgress.t2.pendingReplies)) metaProgress.t2.pendingReplies.forEach(x => { if (Number(x.dueAt) > 0) deadlines.push(Number(x.dueAt)); });
   if (!deadlines.length) return;
@@ -2324,6 +2419,7 @@ function armRealtimeScheduler() {
 }
 function realtimeChoiceBlockReasons(choice) {
   const reasons = [];
+  if (!storyConditionsMet(choice)) reasons.push("условия этой временной линии не выполнены");
   if (choice.reqFlag && !st.flags.includes(choice.reqFlag)) reasons.push("не выполнено условие сюжета");
   if (choice.forbidFlag && st.flags.includes(choice.forbidFlag)) reasons.push("этот вариант закрыт текущим событием");
   if (choice.requiresChoice && ![].concat(choice.requiresChoice).some(hasDecision)) reasons.push("не принято необходимое предыдущее решение");
@@ -2356,9 +2452,11 @@ function openRealtimeInbox(eventId) {
     events.forEach(ev => {
       if (eventId && ev.eventId !== eventId && ev.eventKey !== eventId) return;
       const card = document.createElement("section"); card.className = "temporal-branch";
-      card.append(el("b", ev.title + (ev.answered ? " · ОТВЕЧЕНО" : ev.read ? " · ПРОЧИТАНО" : " · НОВОЕ")));
+      card.append(el("b", ev.title + (ev.missed ? " · СРОК ИСТЁК" : ev.answered ? " · ОТВЕЧЕНО" : ev.read ? " · ПРОЧИТАНО" : " · НОВОЕ")));
       card.append(el("p", ev.text));
-      if (ev.answered) {
+      if (ev.deadlineAt && !ev.answered && !ev.missed) card.append(el("small", "Ответить до: " + new Date(ev.deadlineAt).toLocaleString()));
+      if (ev.missed) { card.append(el("small", "Вы не ответили вовремя. Последствия уже применены.")); }
+      else if (ev.answered) {
         const selected = (ev.choices || [])[Number(ev.choiceIndex)];
         card.append(el("small", "Ваш ответ: " + (selected && selected.text || "решение сохранено")));
       } else if (Array.isArray(ev.choices) && ev.choices.length) {
@@ -2382,7 +2480,7 @@ function chooseRealtimeEvent(eventKey, choiceIndex) {
   if (!st) return false;
   ensureRealtimeState(); ensureDecisionState();
   const ev = st.realtimeInbox.find(x => x.eventKey === eventKey);
-  if (!ev || ev.answered) return false;
+  if (!ev || ev.answered || ev.missed || (ev.deadlineAt && Date.now() >= Number(ev.deadlineAt))) return false;
   const choice = (ev.choices || [])[choiceIndex]; if (!choice) return false;
   if (realtimeChoiceBlockReasons(choice).length) return false;
   const snapshot = captureDecisionSnapshot();
@@ -2405,6 +2503,7 @@ function chooseRealtimeEvent(eventKey, choiceIndex) {
   if (choice.o2Gain) res("o2",choice.o2Gain);
   const enGain = choice.enGain || choice.energyGain || 0; if (enGain) res("en",enGain);
   recordFlags(choice.addFlags);
+  applyStoryEffects(choice, "realtime-choice");
   save(); updateJournalBadge();
   $('#modal').classList.remove('on'); $('#modal').setAttribute('aria-hidden','true');
   if (choice.goto && STORY_DATA.nodes[choice.goto]) {
@@ -2471,6 +2570,7 @@ function enter(id) {
   st.currentPage = pageFromChars(st.charsRead); st.page = st.currentPage;
   st.stats.steps++; st.waitDone = false; st.waitWasSkipped = false; const o = n.onEnter || {};
   o.hp && res("hp", o.hp); o.o2 && res("o2", o.o2); o.energy && res("en", o.energy); o.ammo && res("ammo", o.ammo);
+  applyStoryEffects(o, "node-enter");
   const dr = n.drain; if (dr) { dr.energy && res("en", dr.energy); dr.o2 && res("o2", dr.o2); if (st.en <= 0 && !st.dead) { add("sys", STORY_DATA.meta.coldMsg, true); res("hp", -2); } }
   (o.removeItems || []).forEach(it => { const i = st.inv.indexOf(it); if (i >= 0) { st.inv.splice(i, 1); add("sys", "[ИНВЕНТАРЬ: Утрачен «" + it + "»]"); } });
   (o.addItems || []).forEach(give);
@@ -2486,6 +2586,7 @@ function enter(id) {
     if (m.choiceId && !hasDecision(m.choiceId)) return false;
     if (m.noChoiceId && hasDecision(m.noChoiceId)) return false;
     if (Array.isArray(m.choiceIds) && !m.choiceIds.some(hasDecision)) return false;
+    if (!storyConditionsMet(m)) return false;
     return true;
   }).map(m => {
     const tx = typeof m === "string" ? m : (m.n || m.t || "");
@@ -2674,6 +2775,7 @@ function choices(n) {
     if (forbiddenFlags.some(f => st.flags.includes(f))) return;
     if (c.requiresChoice && ![].concat(c.requiresChoice).some(hasDecision)) return;
     if (c.forbidsChoice && [].concat(c.forbidsChoice).some(hasDecision)) return;
+    if (!storyConditionsMet(c)) return;
     const tg = [], reasons = [];
     if (c.reqSkill) { tg.push("навык: " + c.reqSkill); if (!hasSkill(c.reqSkill)) reasons.push("нет навыка «" + c.reqSkill + "» и активной поддержки предмета"); }
     if (c.reqSkillOrItem) {
@@ -2745,6 +2847,7 @@ function applyChoice(c) {
   (c.addItems || []).forEach(give);
   (c.hpGain || 0) && res("hp", c.hpGain); (c.o2Gain || 0) && res("o2", c.o2Gain); (c.enGain || c.energyGain || 0) && res("en", c.enGain || c.energyGain);
   recordFlags(c.addFlags);
+  applyStoryEffects(c, "choice");
   status();
 }
 function activateItem(item) {
