@@ -52,6 +52,20 @@ input{width:100%;font:inherit;color:var(--tx);background:var(--pn);border:1px so
 .dossier-facts:before{content:"ЗАПИСИ ПО ХОДУ ИСТОРИИ";color:#8f9fc2;font:700 9px/1.4 ui-monospace,monospace;letter-spacing:.08em}
 .dossier-fact{margin:0;padding-left:10px;border-left:2px solid #8b79bd;color:#c5b9e8;font-size:11px;line-height:1.45}
 .dossier-hint{padding:8px 10px;border:1px dashed #2a3550;border-radius:7px;color:#8491b5;font:italic 12px/1.5 Lora,Georgia,serif}
+.temporal-panel{padding:10px;border:1px solid #37486a;border-left:3px solid #8fb8ff;border-radius:8px;background:linear-gradient(145deg,#111a2c,#090e1b);display:flex;flex-direction:column;gap:7px}
+.temporal-panel strong{color:#d8e8ff;font-size:12px;letter-spacing:.04em}
+.temporal-panel p{margin:0;color:#b8c7e5;font:12px/1.55 Lora,Georgia,serif}
+.temporal-locked{border-left-color:#8a718d;background:#151221}
+.temporal-branch{padding:9px;border:1px solid #283652;border-radius:7px;background:#090e1a;display:flex;flex-direction:column;gap:5px}
+.temporal-branch b{color:#d8e8ff;font-size:12px}
+.temporal-branch small{color:#8799bd;font-size:10px;line-height:1.45}
+.temporal-branch button{width:100%;text-align:center}
+.t2-line{padding:8px 10px;border-radius:9px;background:#101a2b;border-left:2px solid #c9a8ff;font:13px/1.55 Lora,Georgia,serif;color:#d6def2}
+.t2-line.user{margin-left:18px;background:#17233a;border-left-color:#8fb8ff;color:#e2edff}
+.t2-status{display:flex;gap:6px;flex-wrap:wrap}
+.t2-status span{font-size:10px;padding:4px 8px;border:1px solid #33415d;border-radius:12px;color:#b9c7e2}
+.temporal-note{color:#8f9fc2;font-size:10px;line-height:1.5}
+
 .inv-entry{display:flex;flex-direction:column;gap:6px;padding:10px;border:1px solid #283652;border-left:3px solid #8fb8ff;border-radius:8px;background:linear-gradient(145deg,#111a2a,#090f1b)}.inv-entry .inv-name{color:#e3edff;font-size:13px}.inv-entry p{margin:0;color:#c2cde3;font:12px/1.5 Lora,Georgia,serif}.inv-entry .inv-state{color:#9eadd0;font-size:10px;letter-spacing:.04em}.inv-entry button{width:100%;margin-top:2px;text-align:center;border-color:#40557c;background:#17233a}.inv-entry button:disabled{opacity:.42}
 
 
@@ -460,7 +474,8 @@ body {
    ============================================================ */
 const STORY_DATA = {
   /* Схема узла: messages [строка | {n:"абзац рассказчика"} | {t, skill, item, flag, noFlag}], onEnter {hp,o2,energy,ammo,addItems,removeItems,addFlags,removeFlags},
-     drain {energy,o2}, waitSeconds+waitText, isEnding+endingTitle+epilogue, choices [{text,goto,reqSkill,reqItem,useItem,reqAmmo,reqFlag,forbidFlag,hpCost,o2Cost,energyCost/enCost,hpGain,o2Gain,enGain,addItems,addFlags}].
+     drain {energy,o2}, waitSeconds/waitMinutes/waitHours+waitText, realtimeEvents:[{id,afterSeconds/afterMinutes/afterHours,title,text,choices}],
+     isEnding+endingTitle+epilogue, choices [{text,goto,reqSkill,reqItem,reqSkillOrItem,reqAmmo,reqFlag,forbidFlag,requiresChoice,forbidsChoice,hpCost,o2Cost,energyCost/enCost,hpGain,o2Gain,enGain,addItems,addFlags,outcomeText}].
      Ресурсы в этой книге: hp = Жизненная сила, o2 = Ясность, energy = Свет Лиор’Саэна, ammo = Слова. */
   meta: {
     title: "НАБЛЮДАТЕЛИ АНДРОМЕДЫ", sub: "Книга-игра о тех, кто решил остаться",
@@ -1534,6 +1549,159 @@ const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return 
 const lsDel = k => { try { localStorage.removeItem(k); } catch (e) {} };
 const $ = s => document.querySelector(s);
 const el = (t, x) => { const e = document.createElement(t); e.textContent = x; return e; };
+
+const META_KEY = "andromeda_temporal_meta_v1";
+const TEMPORAL_RULES = Object.freeze({
+  designVersion: 3,
+  completedRoutesToUnlock: 1,
+  maxT2Messages: 40,
+  t2ReplyCooldownMs: 5 * 60 * 1000,
+  t2ReplyDelayFastMs: 2000,
+  fastStoryWaitMs: 2000,
+  maxScheduledEvents: 40,
+  maxInboxEvents: 60,
+  maxDeliveredEventKeys: 200,
+  backgroundPushRequiresBackend: true
+});
+function makeMetaProgress() {
+  return {
+    version: 2,
+    routeCompleted: false,
+    firstEnding: null,
+    chronicleUnlocked: false,
+    t2Unlocked: false,
+    nextTimelineId: 2,
+    activeTimelineId: 1,
+    completedRoutes: [],
+    alternateLines: [],
+    t2: { trust: 0, hostility: 0, deception: 0, temporalDrift: 0, nextActionAt: 0, messages: [], pendingReplies: [], unreadReplies: 0, exchanges: 0 }
+  };
+}
+function loadMetaProgress() {
+  let raw = null;
+  try { raw = JSON.parse(lsGet(META_KEY) || "null"); } catch (e) {}
+  const base = makeMetaProgress();
+  const m = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : base;
+  Object.keys(base).forEach(k => { if (m[k] == null) m[k] = base[k]; });
+  if (!Array.isArray(m.completedRoutes)) m.completedRoutes = [];
+  if (!Array.isArray(m.alternateLines)) m.alternateLines = [];
+  if (!m.t2 || typeof m.t2 !== "object") m.t2 = base.t2;
+  Object.keys(base.t2).forEach(k => { if (m.t2[k] == null) m.t2[k] = base.t2[k]; });
+  m.t2.messages = Array.isArray(m.t2.messages) ? m.t2.messages : [];
+  m.t2.pendingReplies = Array.isArray(m.t2.pendingReplies) ? m.t2.pendingReplies : [];
+  // Совместимость: прежнее прохождение с уже открытой недефолтной концовкой
+  // означает, что игрок завершил хотя бы одну сюжетную линию.
+  try {
+    const old = JSON.parse(lsGet("unlocked_endings") || "[]");
+    if (Array.isArray(old) && old.some(id => id && id !== STORY_DATA.meta.deathEnding)) {
+      m.routeCompleted = true; m.chronicleUnlocked = true; m.t2Unlocked = true;
+    }
+  } catch (e) {}
+  return m;
+}
+let metaProgress = loadMetaProgress();
+let temporalMainSaveFailed = false;
+let temporalMetaSaveFailed = false;
+function saveMetaProgress() {
+  try {
+    localStorage.setItem(META_KEY, JSON.stringify(metaProgress));
+    temporalMetaSaveFailed = false;
+  } catch (e) {
+    // Не удаляем историю развилок. При нехватке места сокращаем только
+    // необязательные текстовые стенограммы, сохраняя все записи решений.
+    (metaProgress.alternateLines || []).forEach(line => {
+      if (Array.isArray(line.transcript) && line.transcript.length > 12) line.transcript = line.transcript.slice(-12);
+    });
+    if (metaProgress.t2 && Array.isArray(metaProgress.t2.messages)) metaProgress.t2.messages = metaProgress.t2.messages.slice(-20);
+    try {
+      localStorage.setItem(META_KEY, JSON.stringify(metaProgress));
+      temporalMetaSaveFailed = false;
+    } catch (ignore) {
+      temporalMetaSaveFailed = true;
+      console.warn('Хронология не помещается в localStorage; требуется экспорт/синхронизация сохранения.', ignore);
+    }
+  }
+}
+function ensureMetaProgress() {
+  if (!metaProgress || typeof metaProgress !== "object") metaProgress = makeMetaProgress();
+  const base = makeMetaProgress();
+  Object.keys(base).forEach(k => { if (metaProgress[k] == null) metaProgress[k] = base[k]; });
+  if (!Array.isArray(metaProgress.completedRoutes)) metaProgress.completedRoutes = [];
+  if (!Array.isArray(metaProgress.alternateLines)) metaProgress.alternateLines = [];
+  if (!metaProgress.t2 || typeof metaProgress.t2 !== "object") metaProgress.t2 = base.t2;
+  Object.keys(base.t2).forEach(k => { if (metaProgress.t2[k] == null) metaProgress.t2[k] = base.t2[k]; });
+  if (!Array.isArray(metaProgress.t2.messages)) metaProgress.t2.messages = [];
+  if (!Array.isArray(metaProgress.t2.pendingReplies)) metaProgress.t2.pendingReplies = [];
+  return metaProgress;
+}
+function isChronicleUnlocked() {
+  ensureMetaProgress();
+  return !!metaProgress.chronicleUnlocked;
+}
+function summarizeDecision(d) {
+  return { choiceId: d.choiceId, node: d.node, text: d.text, target: d.target, outcome: d.moment && d.moment.text || "" };
+}
+function summarizeCurrentRun() {
+  return {
+    timelineId: Number(st && st.timelineId) || 1,
+    node: st && st.node || "",
+    chapter: Number(st && (st.currentChapter || st.chap)) || 1,
+    page: Number(st && st.currentPage) || 1,
+    decisions: (st && Array.isArray(st.decisionHistory) ? st.decisionHistory : []).map(summarizeDecision),
+    flags: (st && Array.isArray(st.flags) ? st.flags : []).slice(),
+    resources: st ? {hp:st.hp,o2:st.o2,en:st.en,ammo:st.ammo} : {},
+    inventory: st && Array.isArray(st.inv) ? st.inv.slice() : []
+  };
+}
+function completeStoryRoute(endingId) {
+  if (!st || st.dead) return false;
+  const endingNode = STORY_DATA.nodes[endingId] || {};
+  if (!endingNode.isEnding && !STORY_DATA.meta.endings[endingId]) return false;
+  ensureMetaProgress();
+  const already = metaProgress.completedRoutes.some(r => r && r.endingId === endingId && r.timelineId === (Number(st.timelineId) || 1));
+  if (!already) {
+    const route = summarizeCurrentRun();
+    route.endingId = endingId;
+    route.endingTitle = (STORY_DATA.meta.endings[endingId] && STORY_DATA.meta.endings[endingId].title) || (STORY_DATA.nodes[endingId] && STORY_DATA.nodes[endingId].endingTitle) || "Завершённая линия";
+    route.completedAt = Date.now();
+    metaProgress.completedRoutes.push(route);
+  }
+  const firstUnlock = !metaProgress.chronicleUnlocked;
+  metaProgress.routeCompleted = true;
+  metaProgress.chronicleUnlocked = true;
+  metaProgress.t2Unlocked = true;
+  if (!metaProgress.firstEnding) metaProgress.firstEnding = {id:endingId, at:Date.now()};
+  if (metaProgress.completedRoutes.length < TEMPORAL_RULES.completedRoutesToUnlock) {
+    saveMetaProgress();
+    return false;
+  }
+  if (!metaProgress.t2.messages.length) {
+    metaProgress.t2.messages.push({from:"T2", at:Date.now(), text:"Связь установлена. Я — Т2. В одной из временных линий ты уже видел исход. В этой — ещё можешь вмешаться. Скажи, ты пришёл удержать меня или разрушить?"});
+  }
+  saveMetaProgress();
+  armRealtimeScheduler();
+  return firstUnlock;
+}
+function applyT2Carryover(targetState) {
+  if (!targetState || !Array.isArray(targetState.flags)) return;
+  ensureMetaProgress();
+  const t = metaProgress.t2;
+  const add = flag => { if (!targetState.flags.includes(flag)) targetState.flags.push(flag); };
+  if (t.trust >= 2) add("T2_СОЮЗНИК");
+  if (t.hostility >= 2) add("T2_ВРАЖДЕБЕН");
+  if (t.deception >= 1) add("T2_ПОДОЗРЕВАЕТ");
+}
+STORY_DATA.meta.flagNames["T2_СОЮЗНИК"] = "В другой временной линии вы помогли Т2, и он готов поддержать вас.";
+STORY_DATA.meta.flagNames["T2_ВРАЖДЕБЕН"] = "Вы неоднократно мешали Т2; его вмешательство может стать опасным.";
+STORY_DATA.meta.flagNames["T2_ПОДОЗРЕВАЕТ"] = "Т2 запомнил обман и больше не считает ваши сигналы надёжными.";
+STORY_DATA.meta.flagNames["T2_ПОМЕШАЛ"] = "Вы помешали T2 и увеличили нестабильность временного сигнала.";
+STORY_DATA.meta.flagNames["T2_ОБМАНУЛ"] = "Вы передали T2 ложный фрагмент архива.";
+STORY_DATA.meta.flagNames["T2_ВЫСЛУШАЛ"] = "Вы выслушали T2, не вмешиваясь в его состояние.";
+STORY_DATA.meta.achievements["T2_ПОДДЕРЖАЛ"] = "Вы помогли T2 удержать память между временными линиями.";
+STORY_DATA.meta.achievements["T2_ПОМЕШАЛ"] = "Вы помешали T2 и усилили нестабильность его сигнала.";
+STORY_DATA.meta.achievements["T2_ОБМАНУЛ"] = "Вы передали T2 ложный фрагмент архива.";
+STORY_DATA.meta.achievements["T2_ВЫСЛУШАЛ"] = "Вы выслушали T2, не вмешиваясь.";
+
 let skip = false, st = null, run = 0, cfg = { mode: "real", sound: true }, sel = null, picked = new Set();
 
 let ac = null;
@@ -1569,12 +1737,16 @@ $("#snd").onclick = e => { cfg.sound = !cfg.sound; e.target.textContent = "Зв�
 $("#go").onclick = () => {
   sfx.click();
   const h = sel === "custom" ? { name: $("#nm").value.trim(), skills: [...picked], items: STORY_DATA.meta.customHero.items, ammo: STORY_DATA.meta.customHero.ammo } : STORY_DATA.heroes.find(x => x.id === sel);
-  st = { hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], itemBuffs: [], itemUseLog: {}, equipment: {}, flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, shownChapterHeader: 0, currentPage: 1, charsRead: 0, pendingCharsRead: 0, pageSchemeVersion: 3, chap: 1, page: 1, waitUntil: 0, waitMode: null, waitDone: false, waitWasSkipped: false, notificationsEnabled: false, decisionHistory: [], storyMoments: [], pendingOutcome: null, dead: false };
+  ensureMetaProgress();
+  st = { timelineId: Number(metaProgress.activeTimelineId) || 1, hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], itemBuffs: [], itemUseLog: {}, equipment: {}, flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, shownChapterHeader: 0, currentPage: 1, charsRead: 0, pendingCharsRead: 0, pageSchemeVersion: 3, temporalHistoryVersion: 3, chap: 1, page: 1, waitUntil: 0, waitMode: null, waitDone: false, waitWasSkipped: false, notificationsEnabled: false, decisionHistory: [], decisionSequence: 0, storyMoments: [], pendingOutcome: null, realtimeSchedule: [], realtimeInbox: [], realtimeDelivered: [], dead: false };
+  applyT2Carryover(st);
   $("#chat").innerHTML = ""; show("game"); status(); enter(STORY_DATA.meta.start);
 };
 $("#cont").onclick = () => {
   st = JSON.parse(lsGet(KEY));
-  ensureItemState(); ensureDecisionState();
+  ensureMetaProgress();
+  ensureItemState(); ensureDecisionState(); ensureRealtimeState();
+  if (!Number.isFinite(Number(st.timelineId)) || Number(st.timelineId) < 1) st.timelineId = Number(metaProgress.activeTimelineId) || 1;
   if (!Array.isArray(st.inv)) st.inv = [];
   if (!Array.isArray(st.pend)) st.pend = [];
   if (!Array.isArray(st.pend)) st.pend = [];
@@ -1663,6 +1835,8 @@ $("#cont").onclick = () => {
     }
   }
   migrateDossiersForLegacySave();
+  ensureRealtimeState();
+  applyT2Carryover(st);
 
   // Старые сохранения могли хранить обычные абзацы как сообщения с подписью героя.
   // Переводим их в книжный стиль; реальные реплики оставляем с тире.
@@ -1689,7 +1863,7 @@ $("#cont").onclick = () => {
     st.pgLeft = st.paged ? st.pgSizes.shift() : 0;
   }
 
-  show("game"); status(); $("#chat").innerHTML = ""; st.chat.forEach(draw); pump();
+  show("game"); status(); $("#chat").innerHTML = ""; st.chat.forEach(draw); processRealtimeQueue(); pump();
 };
 const show = id => {
   document.querySelectorAll(".scr").forEach(e => e.classList.toggle("on", e.id === id));
@@ -1699,7 +1873,15 @@ const show = id => {
 };
 
 /* --- состояние --- */
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} };
+const save = () => {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(st));
+    temporalMainSaveFailed = false;
+  } catch (e) {
+    temporalMainSaveFailed = true;
+    console.warn('Не удалось сохранить полное состояние книги. Возможна нехватка места в хранилище браузера.', e);
+  }
+};
 function ensureItemState() {
   if (!st) return;
   if (!Array.isArray(st.inv)) st.inv = [];
@@ -1891,7 +2073,10 @@ function updateJournalBadge() {
   const badge = $("#jn"), btn = $("#bLog");
   if (!badge || !btn || !st) return;
   const seen = new Set(Array.isArray(st.journalSeen) ? st.journalSeen : []);
-  const unread = st.flags.filter(f => STORY_DATA.meta.flagNames[f] && !seen.has(f)).length;
+  const unreadFlags = st.flags.filter(f => STORY_DATA.meta.flagNames[f] && !seen.has(f)).length;
+  const unreadMessages = Array.isArray(st.realtimeInbox) ? st.realtimeInbox.filter(x => !x.read && !x.answered).length : 0;
+  const unreadT2 = (typeof metaProgress !== "undefined" && metaProgress.t2) ? Math.max(0, Number(metaProgress.t2.unreadReplies) || 0) : 0;
+  const unread = unreadFlags + unreadMessages + unreadT2;
   badge.textContent = unread > 9 ? "9+" : String(unread);
   badge.hidden = unread === 0;
   btn.setAttribute("aria-label", unread ? "Открыть журнал, новых записей: " + unread : "Открыть журнал");
@@ -1920,6 +2105,13 @@ function ensureDecisionState() {
   if (!Array.isArray(st.storyMoments)) st.storyMoments = [];
   if (!st.pendingOutcome || typeof st.pendingOutcome !== 'object') st.pendingOutcome = null;
   if (typeof st.notificationsEnabled !== 'boolean') st.notificationsEnabled = false;
+  // Старые сохранения получают стабильный порядковый номер; историю не обрезаем.
+  let maxSequence = 0;
+  st.decisionHistory.forEach((entry, index) => {
+    if (!Number.isFinite(Number(entry.sequence)) || Number(entry.sequence) < 1) entry.sequence = index + 1;
+    maxSequence = Math.max(maxSequence, Number(entry.sequence) || 0);
+  });
+  st.decisionSequence = Math.max(Number(st.decisionSequence) || 0, maxSequence);
 }
 function hasDecision(choiceId) {
   return !!(st && Array.isArray(st.decisionHistory) && st.decisionHistory.some(d => d && d.choiceId === choiceId));
@@ -1937,37 +2129,294 @@ function captureDecisionSnapshot() {
 function recordDecision(choice, sourceNode, choiceIndex) {
   ensureDecisionState();
   const choiceId = choice.choiceId || (sourceNode + '#' + (choiceIndex + 1));
+  // Снимок делается ДО решения: возврат открывает ровно ту же точку выбора.
   const snapshot = captureDecisionSnapshot();
+  const sequence = (Number(st.decisionSequence) || 0) + 1;
+  st.decisionSequence = sequence;
   const excerpt = (st.chat || []).slice(-7).map(m => ({t:m.t, k:m.k, f:m.f, n:m.n, no:m.no, pages:m.pages}));
   const moment = choice.outcomeText ? {choiceId, node:sourceNode, text:choice.outcomeText, title:choice.outcomeTitle || 'Последствие решения'} : null;
-  st.decisionHistory.push({choiceId, node:sourceNode, choiceIndex, text:choice.text, target:choice.goto, snapshot, excerpt, moment});
-  // Достаточный запас для возврата к ранним решениям без раздувания localStorage.
-  if (st.decisionHistory.length > 120) st.decisionHistory.shift();
+  st.decisionHistory.push({kind:"story", choiceId, sequence, node:sourceNode, choiceIndex, text:choice.text, target:choice.goto, timelineId:Number(st.timelineId)||1, snapshot, excerpt, moment});
+  // Решения активной линии не обрезаются по количеству: доступна вся история прохождения.
   if (moment) st.storyMoments.push(moment);
   st.pendingOutcome = choice.outcomeText ? {from:sourceNode, to:choice.goto, text:choice.outcomeText, choiceId} : null;
 }
+function archiveAbandonedTimeline(index, oldHistory) {
+  ensureMetaProgress();
+  const entry = oldHistory[index];
+  if (!entry) return null;
+  const branch = {
+    id: Number(metaProgress.nextTimelineId) || 2,
+    sourceTimelineId: Number(st.timelineId) || 1,
+    forkNode: entry.node,
+    changedChoice: entry.text,
+    forkChoiceId: entry.choiceId,
+    sharedDecisionCount: index,
+    abandonedAt: Date.now(),
+    endingNode: st.node || "",
+    endingChapter: Number(st.currentChapter || st.chap) || 1,
+    // Сохраняем общий префикс и отвергнутую ветку, чтобы можно было сравнить весь путь.
+    decisions: oldHistory.map((d, i) => ({
+      ...summarizeDecision(d), sequence: Number(d.sequence) || i + 1,
+      timelineId: Number(d.timelineId) || Number(st.timelineId) || 1,
+      kind: d.kind || "story", relation: i < index ? "shared" : "abandoned"
+    })),
+    transcript: (st.chat || []).slice(-CHAT_MAX).map(m => ({t:m.t, k:m.k, f:m.f, n:m.n, no:m.no, pages:m.pages})),
+    storyMoments: (st.storyMoments || []).map(m => ({...m})),
+    endpoint: {
+      chapter: Number(st.currentChapter || st.chap) || 1,
+      node: st.node || "",
+      hp: st.hp, o2: st.o2, en: st.en, ammo: st.ammo,
+      flags: (st.flags || []).slice(), inventory: (st.inv || []).slice(),
+      unreadMessages: (st.realtimeInbox || []).filter(x => !x.read && !x.answered).length
+    }
+  };
+  metaProgress.nextTimelineId = branch.id + 1;
+  metaProgress.alternateLines.unshift(branch);
+  // Архивы альтернативных прохождений не обрезаются по числу линий.
+  saveMetaProgress();
+  return branch;
+}
 function rewindDecision(index) {
   if (!st || !Array.isArray(st.decisionHistory)) return false;
+  if (!isChronicleUnlocked()) {
+    add('sys', '[ХРОНОЛОГИЯ ЗАКРЫТА: завершите одну полноценную сюжетную линию, чтобы разблокировать изменение прошлых решений.]');
+    return false;
+  }
   const oldHistory = st.decisionHistory.slice();
   const entry = oldHistory[index];
   if (!entry || !entry.snapshot) return false;
+  archiveAbandonedTimeline(index, oldHistory);
   const previous = oldHistory.slice(0, index);
   const restored = JSON.parse(JSON.stringify(entry.snapshot));
+  ensureMetaProgress();
+  const newTimelineId = Number(metaProgress.nextTimelineId) || 2;
+  metaProgress.nextTimelineId = newTimelineId + 1;
+  metaProgress.activeTimelineId = newTimelineId;
+  saveMetaProgress();
   st = restored;
+  st.timelineId = newTimelineId;
+  if (Array.isArray(st.realtimeSchedule)) st.realtimeSchedule.forEach(ev => { ev.timelineId = newTimelineId; });
+  if (Array.isArray(st.realtimeInbox)) st.realtimeInbox.forEach(ev => { ev.timelineId = newTimelineId; });
   st.decisionHistory = previous;
   st.storyMoments = previous.map(d => d.moment).filter(Boolean);
+  ensureDecisionState();
   st.pendingOutcome = null;
   st.chat = Array.isArray(entry.excerpt) ? entry.excerpt : [];
   st.queue = []; st.pend = []; st.nextAt = 0; st.waitUntil = 0; st.waitMode = null; st.waitDone = true;
   st.node = entry.node;
+  applyT2Carryover(st);
   run++; skip = false; holdRun = 0;
   $('#modal').classList.remove('on'); $('#modal').setAttribute('aria-hidden', 'true');
   $('#chat').innerHTML = ''; st.chat.forEach(draw);
-  add('sys', '[ПОВОРОТ ВРЕМЕНИ: вы вернулись к решению. Можно выбрать другой путь.]');
+  add('sys', '[ПОВОРОТ ВРЕМЕНИ: создана новая линия №' + newTimelineId + '. Предыдущая версия сохранена в архиве временных линий.]');
   show('game'); status(); save();
   choices(STORY_DATA.nodes[st.node]);
+  if (entry.kind === "realtime" && entry.eventId) openRealtimeInbox(entry.eventId);
+  armRealtimeScheduler();
   return true;
 }
+
+/* --- асинхронные сообщения и отложенные сюжетные события ---
+   Узел может объявить realtimeEvents: [{id, afterSeconds|afterMinutes|afterHours,
+   title, text, choices:[{text, outcomeText, addFlags, removeFlags, addItems,
+   hpCost/o2Cost/enCost, hpGain/o2Gain/enGain, goto}]}].
+   Срок хранится как абсолютный dueAt, поэтому ожидание не начинается заново при возврате.
+*/
+let realtimeTimer = 0;
+function ensureRealtimeState() {
+  if (!st) return;
+  if (!Array.isArray(st.realtimeSchedule)) st.realtimeSchedule = [];
+  if (!Array.isArray(st.realtimeInbox)) st.realtimeInbox = [];
+  if (!Array.isArray(st.realtimeDelivered)) st.realtimeDelivered = [];
+  st.realtimeSchedule = st.realtimeSchedule.filter(x => x && x.eventKey && Number.isFinite(Number(x.dueAt)));
+  st.realtimeInbox = st.realtimeInbox.filter(x => x && x.eventKey);
+  st.realtimeDelivered = st.realtimeDelivered.slice(-TEMPORAL_RULES.maxDeliveredEventKeys);
+}
+function realtimeEventDelayMs(event) {
+  const seconds = Math.max(0, Number(event.afterSeconds) || 0);
+  const minutes = Math.max(0, Number(event.afterMinutes) || 0);
+  const hours = Math.max(0, Number(event.afterHours) || 0);
+  const authored = Number(event.afterMs) > 0 ? Number(event.afterMs) : ((hours * 60 + minutes) * 60 + seconds) * 1000;
+  if (authored <= 0) return 0;
+  if (st.mode === "fast") return Math.max(250, Number(event.fastAfterMs) || TEMPORAL_RULES.fastStoryWaitMs);
+  const drift = Math.max(-5, Math.min(5, Number(metaProgress.t2 && metaProgress.t2.temporalDrift) || 0));
+  return Math.max(1000, Math.round(authored * (1 + drift * 0.05)));
+}
+function scheduleNodeRealtimeEvents(nodeId, node) {
+  ensureRealtimeState();
+  const events = Array.isArray(node && node.realtimeEvents) ? node.realtimeEvents : [];
+  events.forEach(event => {
+    if (!event || !event.id) return;
+    if (event.requiresFlag && !st.flags.includes(event.requiresFlag)) return;
+    if (event.forbidFlag && st.flags.includes(event.forbidFlag)) return;
+    const eventKey = String(nodeId) + "::" + String(event.id);
+    if (st.realtimeDelivered.includes(eventKey) || st.realtimeSchedule.some(x => x.eventKey === eventKey) || st.realtimeInbox.some(x => x.eventKey === eventKey)) return;
+    const delay = realtimeEventDelayMs(event);
+    if (!delay) return;
+    st.realtimeSchedule.push({
+      eventKey, eventId:String(event.id), nodeId:String(nodeId), timelineId:Number(st.timelineId)||1,
+      title:String(event.title || "Входящее сообщение"), text:String(event.text || "Есть новое сообщение."),
+      choices:Array.isArray(event.choices) ? event.choices : [], dueAt:Date.now()+delay, scheduledAt:Date.now(), read:false, answered:false
+    });
+  });
+  if (st.realtimeSchedule.length > TEMPORAL_RULES.maxScheduledEvents) st.realtimeSchedule = st.realtimeSchedule.slice(-TEMPORAL_RULES.maxScheduledEvents);
+  save(); armRealtimeScheduler();
+}
+function notifyTemporalMessage(title, body, tag) {
+  if (!st || !st.notificationsEnabled || !("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    const n = new Notification(title || "Наблюдатели Андромеды", {body:String(body || "История ждёт вашего ответа."), tag:tag || "andromeda-message", renotify:false});
+    n.onclick = () => { try { window.focus(); n.close(); } catch(e) {} };
+  } catch(e) {}
+}
+function processRealtimeQueue() {
+  if (!st) return;
+  ensureRealtimeState();
+  const now = Date.now();
+  const due = st.realtimeSchedule.filter(x => Number(x.dueAt) <= now);
+  if (due.length) {
+    const dueKeys = new Set(due.map(x => x.eventKey));
+    st.realtimeSchedule = st.realtimeSchedule.filter(x => !dueKeys.has(x.eventKey));
+    due.forEach(ev => {
+      if (st.realtimeInbox.some(x => x.eventKey === ev.eventKey)) return;
+      const received = {...ev, receivedAt:now, read:false, answered:false};
+      st.realtimeInbox.push(received);
+      st.realtimeDelivered.push(ev.eventKey);
+      add("sys", "[НОВОЕ СООБЩЕНИЕ: " + ev.title + "]");
+      notifyTemporalMessage("Наблюдатели Андромеды · новое сообщение", ev.title + " — " + ev.text, "andromeda-" + ev.eventKey);
+    });
+    st.realtimeInbox = st.realtimeInbox.slice(-TEMPORAL_RULES.maxInboxEvents);
+    st.realtimeDelivered = st.realtimeDelivered.slice(-TEMPORAL_RULES.maxDeliveredEventKeys);
+  }
+  processT2Replies(now);
+  updateJournalBadge();
+  save();
+  armRealtimeScheduler();
+}
+function processT2Replies(now = Date.now()) {
+  ensureMetaProgress();
+  const t = metaProgress.t2;
+  const pending = Array.isArray(t.pendingReplies) ? t.pendingReplies : [];
+  const due = pending.filter(x => Number(x.dueAt) <= now);
+  if (!due.length) return;
+  const dueIds = new Set(due.map(x => x.id));
+  t.pendingReplies = pending.filter(x => !dueIds.has(x.id));
+  due.forEach(item => {
+    t.messages.push({from:"T2", at:now, text:item.reply, action:item.action});
+    t.unreadReplies = Math.max(0, Number(t.unreadReplies) || 0) + 1;
+    notifyTemporalMessage("Наблюдатели Андромеды · T2", "T2 прислал ответ в канале временной связи.", "andromeda-t2-" + item.id);
+  });
+  if (t.messages.length > TEMPORAL_RULES.maxT2Messages) t.messages = t.messages.slice(-TEMPORAL_RULES.maxT2Messages);
+  if (!t.pendingReplies.length) t.nextActionAt = 0;
+  saveMetaProgress();
+  if ($('#modal').classList.contains('on') && $('#mb').textContent.includes('ВРЕМЕННОЙ КАНАЛ')) openT2Chat();
+}
+function armRealtimeScheduler() {
+  if (realtimeTimer) { clearTimeout(realtimeTimer); realtimeTimer = 0; }
+  const deadlines = [];
+  if (st && Array.isArray(st.realtimeSchedule)) st.realtimeSchedule.forEach(x => { if (Number(x.dueAt) > 0) deadlines.push(Number(x.dueAt)); });
+  ensureMetaProgress();
+  if (Array.isArray(metaProgress.t2.pendingReplies)) metaProgress.t2.pendingReplies.forEach(x => { if (Number(x.dueAt) > 0) deadlines.push(Number(x.dueAt)); });
+  if (!deadlines.length) return;
+  const next = Math.min(...deadlines);
+  const delay = Math.max(50, Math.min(2147480000, next - Date.now()));
+  realtimeTimer = setTimeout(() => { realtimeTimer = 0; processRealtimeQueue(); }, delay);
+}
+function realtimeChoiceBlockReasons(choice) {
+  const reasons = [];
+  if (choice.reqFlag && !st.flags.includes(choice.reqFlag)) reasons.push("не выполнено условие сюжета");
+  if (choice.forbidFlag && st.flags.includes(choice.forbidFlag)) reasons.push("этот вариант закрыт текущим событием");
+  if (choice.requiresChoice && ![].concat(choice.requiresChoice).some(hasDecision)) reasons.push("не принято необходимое предыдущее решение");
+  if (choice.forbidsChoice && [].concat(choice.forbidsChoice).some(hasDecision)) reasons.push("предыдущее решение исключает этот вариант");
+  if (choice.reqSkillOrItem) {
+    const req = choice.reqSkillOrItem;
+    const items = [].concat(req.items || req.item || []).filter(Boolean);
+    const ok = (req.skill && hasSkill(req.skill)) || items.some(item => st.inv.includes(item));
+    if (!ok) reasons.push("нужен навык «" + (req.skill || "") + "» или предмет «" + items.join("/ ") + "»");
+  } else {
+    if (choice.reqSkill && !hasSkill(choice.reqSkill)) reasons.push("нужен навык «" + choice.reqSkill + "»");
+    if (choice.reqItem && !st.inv.includes(choice.reqItem)) reasons.push("нет предмета «" + choice.reqItem + "»");
+  }
+  if (choice.reqAmmo && st.ammo < Number(choice.reqAmmo)) reasons.push("недостаточно слов");
+  const hpCost=Number(choice.hpCost||0), o2Cost=Number(choice.o2Cost||0), enCost=Number(choice.energyCost||choice.enCost||0);
+  if (hpCost && st.hp <= hpCost) reasons.push("недостаточно жизненной силы");
+  if (o2Cost && st.o2 <= o2Cost) reasons.push("недостаточно ясности");
+  if (enCost && st.en < enCost) reasons.push("недостаточно света Лиор’Саэна");
+  if (choice.goto && !STORY_DATA.nodes[choice.goto]) reasons.push("следующий эпизод ещё не добавлен");
+  return reasons;
+}
+function openRealtimeInbox(eventId) {
+  if (!st) return;
+  processRealtimeQueue();
+  ensureRealtimeState();
+  const events = st.realtimeInbox.slice().sort((a,b) => Number(b.receivedAt||0)-Number(a.receivedAt||0));
+  modal(m => {
+    m.append(el("h3", "ВХОДЯЩИЕ СООБЩЕНИЯ"));
+    if (!events.length) { m.append(el("p", "Пока нет входящих сообщений. Новые сигналы появятся по ходу истории; отвечать на них можно сразу или позже.")); return; }
+    events.forEach(ev => {
+      if (eventId && ev.eventId !== eventId && ev.eventKey !== eventId) return;
+      const card = document.createElement("section"); card.className = "temporal-branch";
+      card.append(el("b", ev.title + (ev.answered ? " · ОТВЕЧЕНО" : ev.read ? " · ПРОЧИТАНО" : " · НОВОЕ")));
+      card.append(el("p", ev.text));
+      if (ev.answered) {
+        const selected = (ev.choices || [])[Number(ev.choiceIndex)];
+        card.append(el("small", "Ваш ответ: " + (selected && selected.text || "решение сохранено")));
+      } else if (Array.isArray(ev.choices) && ev.choices.length) {
+        ev.choices.forEach((choice, index) => {
+          const reasons = realtimeChoiceBlockReasons(choice);
+          const b = el("button", choice.text || ("Ответ " + (index+1))); b.type="button"; b.disabled = reasons.length > 0;
+          if (reasons.length) b.title = "Недоступно: " + reasons.join("; ");
+          b.onclick = () => chooseRealtimeEvent(ev.eventKey, index);
+          card.append(b);
+        });
+      } else {
+        const b = el("button", "Отметить прочитанным"); b.type="button"; b.onclick=()=>{ev.read=true;save();openRealtimeInbox(ev.eventKey);updateJournalBadge();}; card.append(b);
+      }
+      m.append(card);
+    });
+  });
+  const current = st.realtimeInbox.find(x => x.eventId === eventId || x.eventKey === eventId);
+  if (current && !current.read) { current.read = true; save(); updateJournalBadge(); }
+}
+function chooseRealtimeEvent(eventKey, choiceIndex) {
+  if (!st) return false;
+  ensureRealtimeState(); ensureDecisionState();
+  const ev = st.realtimeInbox.find(x => x.eventKey === eventKey);
+  if (!ev || ev.answered) return false;
+  const choice = (ev.choices || [])[choiceIndex]; if (!choice) return false;
+  if (realtimeChoiceBlockReasons(choice).length) return false;
+  const snapshot = captureDecisionSnapshot();
+  const sequence = (Number(st.decisionSequence) || 0) + 1;
+  st.decisionSequence = sequence;
+  const excerpt = (st.chat || []).slice(-7).map(m => ({t:m.t,k:m.k,f:m.f,n:m.n,no:m.no,pages:m.pages}));
+  const choiceId = "realtime:" + eventKey + "#" + (choiceIndex+1);
+  const moment = choice.outcomeText ? {choiceId,node:st.node,text:choice.outcomeText,title:choice.outcomeTitle || "Последствие ответа"} : null;
+  st.decisionHistory.push({kind:"realtime",choiceId,sequence,node:st.node,choiceIndex,text:choice.text,target:choice.goto||st.node,eventId:eventKey,timelineId:Number(st.timelineId)||1,snapshot,excerpt,moment});
+  if (moment) st.storyMoments.push(moment);
+  ev.answered = true; ev.read = true; ev.choiceIndex = choiceIndex; ev.answeredAt = Date.now();
+  if (choice.hpCost) res("hp",-choice.hpCost);
+  if (choice.o2Cost) res("o2",-choice.o2Cost);
+  const energyCost = choice.energyCost || choice.enCost || 0; if (energyCost) res("en",-energyCost);
+  if (choice.useItem) removeInventoryItem(choice.useItem,true);
+  (choice.removeItems || []).forEach(item => removeInventoryItem(item,true));
+  (choice.addItems || []).forEach(give);
+  (choice.removeFlags || []).forEach(flag => { st.flags = st.flags.filter(x => x !== flag); });
+  if (choice.hpGain) res("hp",choice.hpGain);
+  if (choice.o2Gain) res("o2",choice.o2Gain);
+  const enGain = choice.enGain || choice.energyGain || 0; if (enGain) res("en",enGain);
+  recordFlags(choice.addFlags);
+  save(); updateJournalBadge();
+  $('#modal').classList.remove('on'); $('#modal').setAttribute('aria-hidden','true');
+  if (choice.goto && STORY_DATA.nodes[choice.goto]) {
+    st.pendingOutcome = choice.outcomeText ? {from:"realtime:"+eventKey,to:choice.goto,text:choice.outcomeText,choiceId} : null;
+    enter(choice.goto);
+  } else {
+    if (moment) add("sys", "[ПОСЛЕДСТВИЕ СООБЩЕНИЯ: " + moment.text + "]");
+    openRealtimeInbox();
+  }
+  return true;
+}
+
 function notifyReady(n) {
   if (!st || !st.notificationsEnabled || !('Notification' in window) || Notification.permission !== 'granted') return;
   try {
@@ -1996,12 +2445,16 @@ function waitDurationMs(node, mode) {
   // Быстрый режим сжимает только явно заданные сюжетные ожидания.
   // Сцены без waitSeconds/waitMinutes/waitHours не получают искусственную паузу.
   if (authoredDuration <= 0) return 0;
-  return mode === 'fast' ? 2000 : authoredDuration;
+  if (mode === 'fast') return TEMPORAL_RULES.fastStoryWaitMs;
+  // Искажение T2 влияет только на длительные сцены (минуты/часы), не ломая короткие авторские паузы.
+  const drift = (hours || minutes) && typeof metaProgress !== 'undefined' ? Math.max(-5, Math.min(5, Number(metaProgress.t2 && metaProgress.t2.temporalDrift) || 0)) : 0;
+  const adjusted = authoredDuration * (1 + drift * 0.05);
+  return Math.max(1000, Math.round(adjusted));
 }
 function enter(id) {
   const n = STORY_DATA.nodes[id]; if (!n) { add("sys", "[ОШИБКА: нет узла " + id + "]", true); return; }
   const previousNode = st.node;
-  ensureItemState(); ensureDecisionState();
+  ensureItemState(); ensureDecisionState(); ensureRealtimeState();
   // Инструменты с reusePerNode дают поддержку только внутри сцены; одноразовые
   // расходники (речь, инструменты, плащ тишины) сохраняют бонус до подходящей проверки.
   if (previousNode && previousNode !== id) {
@@ -2012,6 +2465,7 @@ function enter(id) {
     });
   }
   st.node = id; unlockDossiersForNode(id);
+  scheduleNodeRealtimeEvents(id, n);
   st.currentChapter = nodeChapterNo(n, id); st.chap = st.currentChapter;
   // Глава меняется по узлу, а физическая страница определяется только прочитанными символами.
   st.currentPage = pageFromChars(st.charsRead); st.page = st.currentPage;
@@ -2201,7 +2655,7 @@ function countdown(n, my) {
       const leftMs = Math.max(0, st.waitUntil - Date.now());
       const left = Math.ceil(leftMs / 1000);
       const baseText = fill(n.waitText || "Ожидание завершения действия");
-      const hint = " · нажмите, чтобы пропустить";
+      const hint = " · нажмите, чтобы продолжить сейчас; можно вернуться позже";
       const h = Math.floor(left / 3600), m = Math.floor((left % 3600) / 60), sec = left % 60;
       const clock = h > 0 ? String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0") : String(m).padStart(2, "0") + ":" + String(sec).padStart(2, "0");
       w.textContent = baseText + " " + clock + hint;
@@ -2270,6 +2724,10 @@ function endBtn() {
   const b = el("button", "↻ Начать новый путь"); b.onclick = restart; box.append(a, b); fitChoices(); scrollChatToBottom();
 }
 function restart() {
+  ensureMetaProgress();
+  metaProgress.activeTimelineId = Number(metaProgress.nextTimelineId) || 2;
+  metaProgress.nextTimelineId = metaProgress.activeTimelineId + 1;
+  saveMetaProgress();
   lsDel(KEY); run++; st = null; $("#chat").innerHTML = ""; $("#chs").innerHTML = ""; $("#typ").textContent = ""; $("#wait").hidden = true;
   $("#modal").classList.remove("on"); refresh(); drawSetup(); show("setup");
 }
@@ -2426,6 +2884,118 @@ function modal(fn, close = true, cls = "") {
   if (close) { const b = el("button", "Закрыть"); b.type = "button"; b.onclick = () => { overlay.classList.remove("on"); overlay.setAttribute("aria-hidden", "true"); }; m.append(b); }
   overlay.setAttribute("aria-hidden", "false"); overlay.classList.add("on");
 }
+
+function formatRemaining(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+  return h ? h + " ч " + m + " мин" : (m ? m + " мин " : "") + sec + " сек";
+}
+function chooseT2(action) {
+  if (!isChronicleUnlocked()) return false;
+  ensureMetaProgress();
+  const t = metaProgress.t2;
+  if (Date.now() < Number(t.nextActionAt || 0) || (t.pendingReplies || []).length) return false;
+  const actions = {
+    help: {label:"Помочь Т2 удержать память", user:"Я помогу тебе удержать собственную память. Не обязательно повторять худшие ошибки.", reply:"Т2: Ты не стёр меня. Я удержал фрагмент, который не должен был пережить предыдущую линию.", trust:1, hostility:0, deception:0, drift:-1},
+    hinder: {label:"Помешать Т2 и исказить его сигнал", user:"Я не позволю тебе управлять этой линией. Пусть твой сигнал рассыплется.", reply:"Т2: Ты называешь это сопротивлением. Я называю это ещё одной трещиной во времени. Теперь я буду искать обходной путь.", trust:-1, hostility:1, deception:0, drift:2},
+    deceive: {label:"Передать Т2 ложный фрагмент архива", user:"Вот координаты. Но это не весь архив. Проверим, заметишь ли ты подмену.", reply:"Т2: Частота не совпадает. Ты солгал мне. Я сохранил эту несостыковку — она пригодится позже.", trust:-1, hostility:0, deception:1, drift:1},
+    listen: {label:"Выслушать Т2, не вмешиваясь", user:"Я пока не стану ни помогать тебе, ни мешать. Говори.", reply:"Т2: Молчание тоже ответ. Я сохраню этот канал открытым и буду ждать следующего окна связи.", trust:0, hostility:0, deception:0, drift:0}
+  };
+  const a = actions[action]; if (!a) return false;
+  const now = Date.now();
+  t.trust = Math.max(-5, Math.min(5, Number(t.trust || 0) + a.trust));
+  t.hostility = Math.max(0, Math.min(5, Number(t.hostility || 0) + a.hostility));
+  t.deception = Math.max(0, Math.min(5, Number(t.deception || 0) + a.deception));
+  t.temporalDrift = Math.max(-9, Math.min(9, Number(t.temporalDrift || 0) + a.drift));
+  t.exchanges = Number(t.exchanges || 0) + 1;
+  const delay = cfg.mode === "fast" ? TEMPORAL_RULES.t2ReplyDelayFastMs : TEMPORAL_RULES.t2ReplyCooldownMs;
+  const dueAt = now + delay;
+  const replyId = "t2-" + (Number(t.exchanges) || 1) + "-" + now;
+  t.nextActionAt = dueAt;
+  if (!Array.isArray(t.pendingReplies)) t.pendingReplies = [];
+  t.pendingReplies.push({id:replyId, action, reply:a.reply, dueAt, sentAt:now});
+  t.messages.push({from:"Вы", at:now, text:a.user, action});
+  if (t.messages.length > TEMPORAL_RULES.maxT2Messages) t.messages = t.messages.slice(-TEMPORAL_RULES.maxT2Messages);
+  if (st) {
+    if (action === "help" && !st.flags.includes("T2_ПОДДЕРЖАЛ")) st.flags.push("T2_ПОДДЕРЖАЛ");
+    if (action === "hinder" && !st.flags.includes("T2_ПОМЕШАЛ")) st.flags.push("T2_ПОМЕШАЛ");
+    if (action === "deceive" && !st.flags.includes("T2_ОБМАНУЛ")) st.flags.push("T2_ОБМАНУЛ");
+    if (action === "listen" && !st.flags.includes("T2_ВЫСЛУШАЛ")) st.flags.push("T2_ВЫСЛУШАЛ");
+    save(); updateJournalBadge();
+  }
+  saveMetaProgress();
+  armRealtimeScheduler();
+  openT2Chat();
+  return true;
+}
+function openT2Chat() {
+  ensureMetaProgress();
+  if (Array.isArray(metaProgress.t2.pendingReplies) && metaProgress.t2.pendingReplies.some(x => Number(x.dueAt) <= Date.now())) processT2Replies(Date.now());
+  if (!metaProgress.t2Unlocked || !metaProgress.chronicleUnlocked) {
+    modal(m => { m.append(el("h3", "КАНАЛ T2 ЗАКРЫТ"), el("p", "Сначала завершите одну полноценную сюжетную линию. После первого финала откроется временная связь с неизвестным собеседником T2.")); });
+    return;
+  }
+  const t = metaProgress.t2;
+  // Открытие канала помечает все уже доставленные ответы T2 прочитанными.
+  t.unreadReplies = 0; saveMetaProgress(); if (st) updateJournalBadge();
+  modal(m => {
+    m.append(el("h3", "ВРЕМЕННОЙ КАНАЛ · T2"));
+    m.append(el("p", "Источник сигнала не подтверждён. T2 утверждает, что помнит другие версии ваших решений. Его слова могут быть правдой, искажением или намеренной ложью."));
+    const stats = el("div", ""); stats.className = "t2-status";
+    stats.append(el("span", "Доверие: " + t.trust), el("span", "Враждебность: " + t.hostility), el("span", "Подмена данных: " + t.deception), el("span", "Сдвиг времени: " + t.temporalDrift));
+    m.append(stats);
+    const transcript = el("div", ""); transcript.style.cssText = "display:flex;flex-direction:column;gap:6px;max-height:34vh;overflow:auto";
+    (t.messages || []).slice(-14).forEach(line => {
+      const p = el("p", (line.from === "Вы" ? "Вы: " : "T2: ") + line.text);
+      p.className = "t2-line" + (line.from === "Вы" ? " user" : ""); transcript.append(p);
+    });
+    m.append(transcript);
+    const wait = Number(t.nextActionAt || 0) - Date.now();
+    if (wait > 0) {
+      const p = el("p", "Т2 обрабатывает ваш ответ. Следующее сообщение ожидается через " + formatRemaining(wait) + ". Канал можно закрыть — дедлайн сохранён, просроченный ответ появится при возвращении."); p.className = "temporal-note"; m.append(p);
+    } else {
+      m.append(el("p", "Ваш ответ изменит отношение T2 к вам и его влияние на будущие временные линии."));
+      [
+        ["help","✦ Помочь удержать память"],
+        ["hinder","⟁ Помешать и исказить сигнал"],
+        ["deceive","⌁ Передать ложный фрагмент архива"],
+        ["listen","… Выслушать, не вмешиваясь"]
+      ].forEach(([id,label]) => { const b=el("button",label); b.type="button"; b.onclick=()=>chooseT2(id); m.append(b); });
+    }
+    const note = el("p", "Это локальная авторская ветка T2: его реплики написаны заранее, приходят с задержкой и зависят от ваших действий. Для свободного диалога с удалённым ИИ понадобится отдельный серверный сервис."); note.className = "temporal-note"; m.append(note);
+  });
+}
+function viewArchivedTimeline(branch) {
+  if (!branch) return;
+  modal(m => {
+    m.append(el("h3", "АРХИВ ВРЕМЕННОЙ ЛИНИИ №" + branch.id));
+    m.append(el("p", "Точка расхождения: " + branch.forkNode + " · " + (branch.changedChoice || "решение не указано")));
+    m.append(el("p", "Оставленная линия была прервана в сцене " + (branch.endingNode || "неизвестной сцены") + ", глава " + (branch.endingChapter || "—") + "."));
+    m.append(el("h3", "Полный путь · общая часть и отвергнутая ветка"));
+    const sharedCount = Number.isFinite(Number(branch.sharedDecisionCount)) ? Number(branch.sharedDecisionCount) : 0;
+    (branch.decisions || []).forEach((d,i) => {
+      const shared = d.relation === "shared" || (d.relation == null && i < sharedCount);
+      const label = shared ? "ОБЩИЙ ПУТЬ" : "ОСТАВЛЕННАЯ ВЕТКА";
+      const p = el("p", (i+1)+". ["+label+"] "+d.node+": "+d.text+(d.outcome ? "\nПоследствие: "+d.outcome : ""));
+      p.className="journal-note"; m.append(p);
+    });
+    if (Array.isArray(branch.storyMoments) && branch.storyMoments.length) {
+      m.append(el("h3", "Зафиксированные сюжетные последствия"));
+      branch.storyMoments.forEach(moment => { const p=el("p", moment.text || ""); p.className="temporal-note"; m.append(p); });
+    }
+    if (Array.isArray(branch.transcript) && branch.transcript.length) {
+      m.append(el("h3", "Последние сообщения оставленной линии"));
+      branch.transcript.forEach(msg => { const p=el("p", (msg.f ? "["+msg.f+"] " : "")+(msg.t || "")); p.className="journal-note"; m.append(p); });
+      const hint=el("p", "Сохранённая стенограмма содержит последние отображавшиеся сообщения перед поворотом времени."); hint.className="temporal-note"; m.append(hint);
+    }
+    const ep = branch.endpoint || {};
+    m.append(el("h3", "Состояние на момент поворота"));
+    m.append(el("p", "Жизненная сила: "+(ep.hp ?? "—")+" · Ясность: "+(ep.o2 ?? "—")+" · Свет: "+(ep.en ?? "—")+" · Слова: "+(ep.ammo ?? "—")));
+    if (Array.isArray(ep.inventory) && ep.inventory.length) m.append(el("p", "Инвентарь: "+ep.inventory.join(", ")));
+    m.append(el("p", "Архив показывает, какие решения и последствия были в оставленной линии. Он не подменяет её автоматическое воспроизведение: для нового исхода используйте поворот времени в активной линии."));
+  });
+}
+
 async function death(my) {
   sfx.alarm(); endBtn(); await sleep(st.mode === "fast" ? 500 : 2200); if (my !== run) return; showFinal(true);
 }
@@ -2441,6 +3011,21 @@ $("#bInv").onclick = showInv;
 $("#chat").onclick = () => { if (st && st.queue && st.queue.length && st.mode !== "fast") skip = true; };
 function modeBtn() { $("#bMode").textContent = st.mode === "fast" ? "⚡" : "⏱"; $("#bMode").title = st.mode === "fast" ? "Быстрый темп (нажмите: реалистичный)" : "Реалистичный темп (нажмите: быстрый)"; }
 $("#bMode").onclick = () => { st.mode = st.mode === "fast" ? "real" : "fast"; modeBtn(); save(); };
+function viewCompletedRoute(route) {
+  if (!route) return;
+  modal(m => {
+    m.append(el("h3", "ЗАВЕРШЁННАЯ ЛИНИЯ №" + (route.timelineId || "—")));
+    m.append(el("p", (route.endingTitle || "Финал") + " · " + (route.endingId || "без ID")));
+    m.append(el("p", "Последняя сцена: " + (route.node || "—") + " · глава " + (route.chapter || "—") + " · решений: " + ((route.decisions || []).length)));
+    m.append(el("h3", "Выбранный путь"));
+    (route.decisions || []).forEach((d,i) => { const p=el("p", (i+1)+". "+d.node+": "+d.text+(d.outcome ? "\nПоследствие: "+d.outcome : "")); p.className="journal-note"; m.append(p); });
+    if (Array.isArray(route.flags) && route.flags.length) { m.append(el("h3", "Ключевые флаги")); route.flags.forEach(f => { const label=STORY_DATA.meta.flagNames[f] || f; const p=el("p", "✦ "+label); p.className="journal-note"; m.append(p); }); }
+    const r=route.resources||{};
+    m.append(el("h3", "Состояние в финале"));
+    m.append(el("p", "Жизненная сила: "+(r.hp??"—")+" · Ясность: "+(r.o2??"—")+" · Свет: "+(r.en??"—")+" · Слова: "+(r.ammo??"—")));
+  });
+}
+
 function openJournal() {
   if (!st) return;
   if (!Array.isArray(st.journalSeen)) st.journalSeen = [];
@@ -2454,6 +3039,12 @@ function openJournal() {
     m.append(el("p", "Навыки: " + st.skills.join(", ")));
     m.append(el("p", LB.hp + " " + st.hp + "/20 · " + LB.o2 + " " + st.o2 + "% · " + LB.en + " " + st.en + "% · " + LB.ammo + " " + st.ammo));
     m.append(el("p", pgTxt()));
+    ensureRealtimeState();
+    const unreadInbox = st.realtimeInbox.filter(x => !x.read && !x.answered).length;
+    m.append(el("h3", "Входящие сообщения · режим реального времени"));
+    const inboxButton = el("button", "📨 Открыть входящие сообщения" + (unreadInbox ? " · новых: " + unreadInbox : ""));
+    inboxButton.type = "button"; inboxButton.onclick = () => openRealtimeInbox(); m.append(inboxButton);
+    m.append(el("p", "Сообщения могут приходить по таймеру внутри авторской сцены. Можно ответить сразу или позже: входящие остаются в сохранении и ждут вашего ответа."));
     m.append(el("h3", "Записи наблюдателя"));
     if (!notes.length) m.append(el("p", "Записей пока нет. Важные решения и открытия будут сохраняться здесь."));
     notes.forEach(f => {
@@ -2461,23 +3052,56 @@ function openJournal() {
       p.className = unseen.has(f) ? "journal-note journal-note-new" : "journal-note";
       m.append(p);
     });
-    m.append(el("h3", "История решений · изменить прошлый выбор"));
+    ensureMetaProgress();
+    const temporal = el("section", ""); temporal.className = "temporal-panel" + (isChronicleUnlocked() ? "" : " temporal-locked");
+    temporal.append(el("strong", isChronicleUnlocked() ? "РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ · РАЗБЛОКИРОВАН" : "РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ · ЗАБЛОКИРОВАН"));
+    temporal.append(el("p", isChronicleUnlocked() ? "Теперь можно вернуться к любому сохранённому решению этой линии, изменить его и пройти историю заново с этой точки. Предыдущая версия пути сохраняется в архиве с решениями и последними сообщениями." : "Сначала завершите одну полноценную сюжетную линию. После первого финала откроется возможность менять любое прошлое решение и сравнивать альтернативные линии."));
+    m.append(temporal);
+    m.append(el("h3", "История решений · изменить любой прошлый выбор"));
     const decisions = Array.isArray(st.decisionHistory) ? st.decisionHistory : [];
+    m.append(el("p", "В этой временной линии сохранено решений: " + decisions.length + ". История не обрезается по фиксированному числу: можно вернуться к любому сохранённому выбору после разблокировки Хронологии."));
+    if (temporalMainSaveFailed || temporalMetaSaveFailed) {
+      const warning = el("p", "ВНИМАНИЕ: браузер сообщил о нехватке места для сохранения. Экспортируйте резервную копию сохранения и освободите место, иначе самые новые изменения могут не сохраниться.");
+      warning.className = "journal-note journal-note-new"; m.append(warning);
+    }
     if (!decisions.length) {
-      m.append(el("p", "Здесь будут сохраняться принятые решения. Вы сможете вернуться к любому из них и попробовать другой путь."));
+      m.append(el("p", "Здесь будут сохраняться принятые решения. После разблокировки режима временных линий их можно будет пересматривать."));
     } else {
       const historyBox = el("div", ""); historyBox.className = "dossier-list";
       decisions.slice().reverse().forEach((d, reverseIndex) => {
         const realIndex = decisions.length - 1 - reverseIndex;
         const card = el("div", ""); card.className = "journal-note";
         const chapter = Number(String(d.node || '').match(/^c(\d+)_/)?.[1] || 1);
-        card.append(el("b", "Глава " + chapter + " · " + (d.node || "сцена")));
+        const originLabel = d.kind === "realtime" ? "Входящее сообщение" : ("Глава " + chapter + " · " + (d.node || "сцена"));
+        card.append(el("b", "Линия №" + (d.timelineId || st.timelineId || 1) + " · " + originLabel));
         card.append(el("p", d.text || "Принятое решение"));
-        const b = el("button", "↶ Вернуться и изменить этот выбор"); b.type = "button";
+        if (d.moment && d.moment.text) { const result=el("p", "Последствие: " + d.moment.text); result.className="temporal-note"; card.append(result); }
+        const b = el("button", isChronicleUnlocked() ? "↶ Вернуться и изменить этот выбор" : "🔒 Изменение откроется после первого финала"); b.type = "button"; b.disabled = !isChronicleUnlocked();
         b.onclick = () => rewindDecision(realIndex);
         card.append(b); historyBox.append(card);
       });
       m.append(historyBox);
+    }
+    m.append(el("h3", "Архив альтернативных линий"));
+    if (!metaProgress.alternateLines.length) m.append(el("p", "Когда вы измените решение после разблокировки режима, прежняя версия пути будет сохранена здесь."));
+    metaProgress.alternateLines.forEach(branch => {
+      const card=el("section", ""); card.className="temporal-branch";
+      card.append(el("b", "Линия №"+branch.id+" · развилка в "+branch.forkNode));
+      card.append(el("small", "Оставлено после решения: "+(branch.changedChoice||"—")+" · последняя сцена: "+(branch.endingNode||"неизвестно")));
+      const b=el("button", "Посмотреть решения и последствия этой линии"); b.type="button"; b.onclick=()=>viewArchivedTimeline(branch); card.append(b); m.append(card);
+    });
+    m.append(el("h3", "Завершённые сюжетные линии"));
+    if (!metaProgress.completedRoutes.length) m.append(el("p", "После первого полноценного финала здесь появится архив завершённых прохождений."));
+    metaProgress.completedRoutes.slice().reverse().forEach(route => {
+      const card=el("section", ""); card.className="temporal-branch";
+      card.append(el("b", "Линия №"+(route.timelineId||"—")+" · "+(route.endingTitle||"Финал")));
+      card.append(el("small", "Последняя сцена: "+(route.node||"—")+" · решений: "+((route.decisions||[]).length)));
+      const b=el("button", "Посмотреть завершённый маршрут"); b.type="button"; b.onclick=()=>viewCompletedRoute(route); card.append(b); m.append(card);
+    });
+    if (metaProgress.chronicleUnlocked) {
+      m.append(el("h3", "Связь с T2 · искажённая временная копия"));
+      const t2Button=el("button", "🛰 Открыть канал T2"); t2Button.type="button"; t2Button.onclick=()=>openT2Chat(); m.append(t2Button);
+      m.append(el("p", "Ваши ответы могут поддержать T2, усилить его враждебность или заставить его сомневаться в ваших данных. Отношение сохраняется между временными линиями."));
     }
     m.append(el("h3", "Открытые моменты истории"));
     if (!st.storyMoments || !st.storyMoments.length) m.append(el("p", "Особые сюжетные моменты появятся после первых решений."));
@@ -2488,7 +3112,7 @@ function openJournal() {
     notifyButton.type = "button"; notifyButton.disabled = st.notificationsEnabled;
     notifyButton.onclick = () => requestStoryNotifications();
     m.append(notifyButton);
-    m.append(el("p", "Таймеры продолжаются по абсолютному времени и сохраняются при закрытии страницы. Системные уведомления срабатывают, пока браузер может выполнять страницу; для push-уведомлений при полностью закрытом приложении потребуется сервер и Service Worker."));
+    m.append(el("p", "Сюжетные ожидания и входящие сообщения используют абсолютные дедлайны и сохраняются при закрытии: можно ответить сразу или позже. Если страница остаётся запущенной, браузер может показать системное уведомление; если приложение было закрыто, просроченное сообщение появится во входящих при следующем запуске. Гарантированная доставка push при полностью закрытом Telegram Mini App требует серверного планировщика, базы данных и отправки сообщения через Telegram Bot API."));
     m.append(el("h3", "Оглавление · стр. 1–377"));
     const legend = el("p", "✓ Пройдено · ▶ Текущая глава · 🔒 Впереди"); legend.className = "toc-legend"; m.append(legend);
     const toc = el("div", ""); toc.className = "toc";
@@ -2542,6 +3166,25 @@ function openJournal() {
 $("#bLog").addEventListener("click", e => { e.preventDefault(); e.stopPropagation(); openJournal(); });
 $("#modal").addEventListener("click", e => { if (e.target === $("#modal")) { $("#modal").classList.remove("on"); $("#modal").setAttribute("aria-hidden", "true"); } });
 
+// Абсолютные дедлайны переживают закрытие вкладки: при возвращении браузер
+// немедленно сверяет время, а не запускает ожидание заново.
+function reconcileRealtimeOnResume() {
+  if (st) {
+    processRealtimeQueue();
+    if (st.node && st.waitUntil && !st.waitDone && Date.now() >= Number(st.waitUntil)) {
+      st.waitUntil = Date.now(); save();
+      if (document.visibilityState !== "hidden") { run++; pump(); }
+    }
+  } else {
+    processT2Replies(Date.now());
+    armRealtimeScheduler();
+  }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reconcileRealtimeOnResume(); });
+window.addEventListener("pageshow", reconcileRealtimeOnResume);
+window.addEventListener("focus", reconcileRealtimeOnResume);
+
+
 /* --- мета-прогресс и экран финала --- */
 const UKEY = "unlocked_endings";
 function getU() { try { return JSON.parse(lsGet(UKEY)) || []; } catch (e) { return []; } }
@@ -2553,6 +3196,7 @@ function refresh() {
 }
 function showFinal(dead) {
   const M = STORY_DATA.meta, n = STORY_DATA.nodes[st.node] || {}, E = M.endings, id = dead ? M.deathEnding : st.node, def = E[id] || {}, fresh = unlock(id), S = st.stats, box = $("#fn");
+  const temporalJustUnlocked = !dead ? completeStoryRoute(id) : false;
   box.innerHTML = "";
   const A = (t, x, c) => { const e = document.createElement(t); if (x != null) e.textContent = x; if (c) e.className = c; box.append(e); return e; };
   const KV = rows => { const d = A("div", null, "card"); rows.forEach(([k, v]) => { const r = document.createElement("div"); r.className = "kv"; r.append(el("span", k), el("b", String(v))); d.append(r); }); };
@@ -2562,6 +3206,7 @@ function showFinal(dead) {
   A("h2", dead ? M.deathTitle : (n.endingTitle || def.title || "Финал"), "fh" + (dead ? " bad" : ""));
   A("div", num ? "Концовка " + num + " из " + M.endingTotal + (dead ? ": " + def.title : "") + (fresh ? "   ✦ НОВАЯ КОНЦОВКА" : "") : "Этот финал не входит в число концовок", "fs");
   ep && A("p", ep, "fe");
+  if (temporalJustUnlocked) { const p=A("p", "✦ ОТКРЫТ РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ. Теперь можно вернуться к прежним решениям, изменить их и увидеть другую версию событий. Также открыт канал связи T2.", "temporal-panel"); }
   A("h3", "Карточка Наблюдателя"); KV([["Позывной", st.hero], ["Архетип", st.arch], ["Навыки", st.skills.join(", ")]]);
   A("h3", "Итоговая телеметрия"); KV([[LB.hp, st.hp + " / 20"], [LB.o2, st.o2 + "%"], [LB.en, st.en + "%"], [LB.ammo, st.ammo]]);
   A("h3", "Статистика прохождения");
@@ -2646,4 +3291,6 @@ $("#spGo").onclick = () => { sfx.click(); prologue(); };
 $("#spCont").onclick = () => $("#cont").onclick();
 $("#prGo").onclick = () => { sfx.click(); show("setup"); };
 refresh(); drawSetup(); boot();
+// Планировщик не открывает игру сам, но проверяет мета-ответы T2 и запланированные события при загрузке.
+try { ensureMetaProgress(); processT2Replies(Date.now()); armRealtimeScheduler(); } catch (e) {}
 </script></body></html>
