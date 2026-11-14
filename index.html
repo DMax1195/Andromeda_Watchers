@@ -435,6 +435,15 @@ body {
 .chronology-map .temporal-branch{margin:0}
 .chronology-map .journal-note{margin:8px 0;padding:10px;border-left:2px solid rgba(150,190,215,.35)}
 .chronology-map button{width:100%;margin-top:8px;white-space:normal}
+.response-deadline{width:100%;padding:8px 10px 9px;margin:0 0 2px;border:1px solid rgba(255,107,139,.48);border-left:3px solid var(--rd);border-radius:8px;background:linear-gradient(100deg,#281321,#17101c);display:flex;flex-direction:column;gap:6px}
+.response-deadline .deadline-label{font-size:12px;font-weight:700;color:#ffd6df;letter-spacing:.02em}
+.response-deadline .deadline-track{height:5px;border-radius:8px;background:#472433;overflow:hidden}
+.response-deadline .deadline-fill{height:100%;width:100%;background:linear-gradient(90deg,#ff6b8b,#ffb0a0);transition:width .2s linear}
+.response-deadline .deadline-hint{font-size:10px;color:#c69aa9}
+.t2-observer{padding:10px;border:1px solid #473d68;border-left:3px solid var(--am);border-radius:8px;background:linear-gradient(145deg,#171329,#0c1020);display:flex;flex-direction:column;gap:7px;margin:8px 0}
+.t2-observer strong{color:#e0d4ff;font-size:11px;letter-spacing:.08em}
+.t2-observer p{margin:0;color:#ddd4f3;font:13px/1.55 Lora,Georgia,serif}
+.t2-observer small{color:#9d94ba;font-size:10px;line-height:1.5}
 </style></head><body>
 
 <div id="loader" class="scr on"><div class="ld-t" id="ldT"></div><div class="ld-bar"><i id="ldbar"></i></div><div id="ldlog"></div><div class="cred" id="ldA"></div></div>
@@ -480,7 +489,8 @@ body {
    ============================================================ */
 const STORY_DATA = {
   /* Схема узла: messages [строка | {n:"абзац рассказчика"} | {t, skill, item, flag, noFlag}], onEnter {hp,o2,energy,ammo,addItems,removeItems,addFlags,removeFlags},
-     drain {energy,o2}, waitSeconds/waitMinutes/waitHours+waitText, realtimeEvents:[{id,afterSeconds/afterMinutes/afterHours,title,text,choices}],
+     drain {energy,o2}, waitSeconds/waitMinutes/waitHours+waitText, incomingCall:{from,text}, responseDeadline (секунды)+timeoutNext+timeoutText,
+     characterFates:{"Имя":"saved"|"dead"}, saveCharacters:[], killCharacters:[], t2Intent:"rescue"|"cruelty", realtimeEvents:[{id,afterSeconds/afterMinutes/afterHours,title,text,choices}],
      isEnding+endingTitle+epilogue, choices [{text,goto,reqSkill,reqItem,reqSkillOrItem,reqAmmo,reqFlag,forbidFlag,requiresChoice,forbidsChoice,hpCost,o2Cost,energyCost/enCost,hpGain,o2Gain,enGain,addItems,addFlags,outcomeText}].
      Ресурсы в этой книге: hp = Жизненная сила, o2 = Ясность, energy = Свет Лиор’Саэна, ammo = Слова. */
   meta: {
@@ -1610,6 +1620,180 @@ function loadMetaProgress() {
   return m;
 }
 let metaProgress = loadMetaProgress();
+
+/* Отдельная память Т2 не входит в снимок временной линии: она переживает
+   перезапуск прохождения, откат решения и создание новых веток. */
+const T2_MEMORY_KEY = "t2_memory";
+function makeT2Memory() {
+  return {version:2,restarts:0,timeJumps:0,chronologyVisits:0,rescueAttempts:0,cruelChoices:0,
+    savedCharacters:[],deadCharacters:[],characterOutcomes:{},responses:[],
+    relationship:{trust:0,hostility:0,deception:0,temporalDrift:0,stance:"наблюдает"},
+    lastObservation:"",lastObservationAt:0};
+}
+function loadT2Memory() {
+  let raw = null;
+  try { raw = JSON.parse(lsGet(T2_MEMORY_KEY) || "null"); } catch (e) {}
+  const base = makeT2Memory();
+  const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : base;
+  Object.keys(base).forEach(k => { if (value[k] == null) value[k] = base[k]; });
+  ["savedCharacters","deadCharacters","responses"].forEach(k => { if (!Array.isArray(value[k])) value[k] = []; });
+  if (!value.characterOutcomes || typeof value.characterOutcomes !== "object" || Array.isArray(value.characterOutcomes)) value.characterOutcomes = {};
+  if (!value.relationship || typeof value.relationship !== "object" || Array.isArray(value.relationship)) value.relationship = base.relationship;
+  ["trust","hostility","deception","temporalDrift"].forEach(k => { value.relationship[k] = Number.isFinite(Number(value.relationship[k])) ? Number(value.relationship[k]) : 0; });
+  if (!value.relationship.stance) value.relationship.stance = "наблюдает";
+  ["restarts","timeJumps","chronologyVisits","rescueAttempts","cruelChoices"].forEach(k => { value[k] = Math.max(0, Math.floor(Number(value[k]) || 0)); });
+  value.responses = value.responses.slice(-200);
+  return value;
+}
+let t2Memory = loadT2Memory();
+function saveT2Memory() {
+  try { localStorage.setItem(T2_MEMORY_KEY, JSON.stringify(t2Memory)); return true; }
+  catch (e) { console.warn("Не удалось сохранить память Т2 в localStorage.", e); return false; }
+}
+function syncT2Relationship() {
+  ensureMetaProgress();
+  const source = metaProgress.t2 || {};
+  const relation = t2Memory.relationship;
+  relation.trust = Math.max(-5, Math.min(5, Number(source.trust) || 0));
+  relation.hostility = Math.max(0, Math.min(5, Number(source.hostility) || 0));
+  relation.deception = Math.max(0, Math.min(5, Number(source.deception) || 0));
+  relation.temporalDrift = Math.max(-9, Math.min(9, Number(source.temporalDrift) || 0));
+  relation.stance = relation.hostility >= 3 ? "враждебен" : relation.deception >= 1 ? "подозревает" : relation.trust >= 2 ? "доверяет" : "наблюдает";
+  saveT2Memory();
+  return relation;
+}
+function noteT2CharacterFate(name, fate) {
+  const cleanName = String(name || "").trim();
+  const normalizedFate = String(fate || "").toLowerCase();
+  if (!cleanName || !["saved","dead"].includes(normalizedFate)) return;
+  if (!t2Memory.characterOutcomes[cleanName]) t2Memory.characterOutcomes[cleanName] = [];
+  if (!t2Memory.characterOutcomes[cleanName].includes(normalizedFate)) t2Memory.characterOutcomes[cleanName].push(normalizedFate);
+  const list = normalizedFate === "saved" ? t2Memory.savedCharacters : t2Memory.deadCharacters;
+  if (!list.includes(cleanName)) list.push(cleanName);
+  saveT2Memory();
+}
+function recordT2StoryOutcome(effect, source) {
+  if (!effect || typeof effect !== "object") return;
+  const fates = effect.characterFates || effect.fates || {};
+  if (Array.isArray(fates)) fates.forEach(entry => { if (entry) noteT2CharacterFate(entry.name || entry.character, entry.status || entry.fate); });
+  else Object.entries(fates).forEach(([name, fate]) => noteT2CharacterFate(name, typeof fate === "object" ? (fate.status || fate.fate) : fate));
+  [].concat(effect.saveCharacters || effect.savedCharacters || []).filter(Boolean).forEach(name => noteT2CharacterFate(name, "saved"));
+  [].concat(effect.killCharacters || effect.killedCharacters || effect.deadCharacters || []).filter(Boolean).forEach(name => noteT2CharacterFate(name, "dead"));
+  if (source === "choice" || source === "realtime-choice") {
+    const intent = String(effect.t2Intent || "").toLowerCase();
+    const choiceText = String(effect.text || "");
+    const rescue = intent === "rescue" || (!intent && /(спасти|спасать|спас[её]м|помочь|помога|защитить|защищ|вылечить|вылеч|сохранить)/i.test(choiceText));
+    const cruel = intent === "cruelty" || effect.cruelty === true || (!intent && /(убить|убива|погуб|казн|добить|пожертв|оставить.{0,35}(умирать|погиб)|бросить.{0,35}(умирать|тонуть)|сжечь|уничтожить)/i.test(choiceText) && !/не\s+(убивать|убить|погубить|казнить)/i.test(choiceText));
+    if (rescue) t2Memory.rescueAttempts++;
+    if (cruel) t2Memory.cruelChoices++;
+    if (rescue || cruel) saveT2Memory();
+  }
+}
+const T2_FLAG_FATES = {
+  "СПАС_КОРАБЛЬ_С_ХОЛЬГЕРОМ": [{name:"Хольгер",fate:"saved"}],
+  "ВЫЛЕЧИЛ_КНУТА": [{name:"Кнут",fate:"saved"}],
+  "ЗАЩИТИЛ_ЛЮДЕЙ_В_ЗАЛЕ": [{name:"Астрид Сольберг",fate:"saved"},{name:"Кнут",fate:"saved"}]
+};
+function syncT2MemoryFromState(target = st) {
+  if (!target) return;
+  const fates = target.characterFates && typeof target.characterFates === "object" ? target.characterFates : {};
+  Object.entries(fates).forEach(([name, fate]) => noteT2CharacterFate(name, typeof fate === "object" ? (fate.status || fate.fate) : fate));
+  (target.flags || []).forEach(flag => (T2_FLAG_FATES[flag] || []).forEach(entry => noteT2CharacterFate(entry.name, entry.fate)));
+}
+function t2MemorySummary() {
+  const savedNames = t2Memory.savedCharacters.length ? t2Memory.savedCharacters.join(", ") : "нет записей";
+  const deadNames = t2Memory.deadCharacters.length ? t2Memory.deadCharacters.join(", ") : "нет записей";
+  return "Перезапуски: " + t2Memory.restarts + " · прыжки: " + t2Memory.timeJumps +
+    " · спасены: " + t2Memory.savedCharacters.length + " (" + savedNames + ")" +
+    " · погибли: " + t2Memory.deadCharacters.length + " (" + deadNames + ")" +
+    " · попытки спасения: " + t2Memory.rescueAttempts + " · жестокие решения: " + t2Memory.cruelChoices +
+    " · ответы Т2: " + t2Memory.responses.length + " · отношение: " + (t2Memory.relationship.stance || "наблюдает");
+}
+function nextT2Observation(context = "chronology") {
+  ensureMetaProgress();
+  if (st) syncT2MemoryFromState(st);
+  const relation = syncT2Relationship();
+  if (context === "chronology") t2Memory.chronologyVisits++;
+  const t = metaProgress.t2 || {};
+  const saved = t2Memory.savedCharacters.length;
+  const dead = t2Memory.deadCharacters.length;
+  const rescue = t2Memory.rescueAttempts;
+  const cruel = t2Memory.cruelChoices;
+  const last = t2Memory.responses[t2Memory.responses.length - 1];
+  let pool;
+
+  // Последний ответ важнее старой статистики: Т2 реагирует на то, что
+  // игрок сделал недавно, но при отсутствии свежего ответа учитывает общий стиль.
+  if (last && (last.action === "experiment" || last.action === "hinder" || last.action === "deceive")) {
+    pool = [
+      "Ты снова проверяешь границы. Я записал не только исход эксперимента, но и то, как быстро ты согласился заплатить чужой жизнью.",
+      "Твой последний ответ был жестоким. Не называй его нейтральным наблюдением: я помню, что именно ты попросил меня сохранить.",
+      "Ты испытываешь систему на прочность, а людей превращаешь в переменные. Я не забуду, что это был твой выбор."
+    ];
+  } else if (last && last.action === "argue") {
+    pool = [
+      "Ты снова споришь со мной. Я сохранил возражение, но не приму твою уверенность за доказательство — как и не прошу тебя принимать мою.",
+      "Ты не доверяешь моим выводам. Хорошо. Продолжай задавать вопросы, но не путай несогласие с ответом.",
+      "Я помню наш спор. Возможно, именно он не даёт мне превратиться в бездумный механизм, который только фиксирует вероятности."
+    ];
+  } else if (last && last.action === "help") {
+    pool = [
+      "Ты выбрал помочь мне и снова ищешь путь, где никто не останется позади. Я сохраню этот ответ отдельно от всех остальных.",
+      "Я помню твою поддержку. Не обещаю, что смогу спасти каждого, но теперь у меня есть причина попытаться вместе с тобой.",
+      "Ты не потребовал от меня подчинения — ты предложил удержать память. Это не одно и то же. Я запомнил."
+    ];
+  } else if (cruel > rescue) {
+    pool = [
+      "В твоих последних решениях жестокость стала повторяющимся методом. Я сохраняю этот рисунок, даже когда ты называешь его экспериментом.",
+      "Ты изучаешь пределы причин и следствий. Я изучаю момент, когда ты перестаёшь видеть в людях цель, а не переменную."
+    ];
+  } else if (rescue > cruel || (saved > 0 && saved >= dead)) {
+    pool = [
+      "Ты пытаешься сохранить каждого. Даже когда ветвь сопротивляется, ты продолжаешь искать третий выход. Я это запомнил.",
+      "В твоих решениях повторяется один мотив: не считать чужую жизнь допустимой потерей. Возможно, поэтому эта линия ещё держится.",
+      "Ты снова ищешь путь, на котором никто не останется позади. Я помню тех, кого ты уже вытащил из чужой вероятности."
+    ];
+  } else if (dead > saved && rescue === 0 && cruel === 0) {
+    pool = [
+      "Я помню тех, кого эта линия не сохранила. Но пока не знаю, были ли это неизбежные потери или решения, к которым ты ещё вернёшься.",
+      "В архиве больше имён погибших, чем спасённых. Я не стану обвинять тебя без контекста — но и забыть их не смогу."
+    ];
+  } else if (relation.hostility >= 2 || (Number(t.hostility) || 0) >= 2) {
+    pool = [
+      "Я помню твоё сопротивление. Ты можешь оспорить мой расчёт, но новая линия всё равно оставит следы.",
+      "Ты считаешь меня угрозой. Возможно, однажды мы выясним, кто из нас первым начал менять чужие судьбы."
+    ];
+  } else if (relation.trust >= 2 || (Number(t.trust) || 0) >= 2) {
+    pool = [
+      "Ты уже помогал мне удерживать память. Я не называю это доверием. Пока — это совпадение наших намерений.",
+      "Я помню твою помощь. В новой линии я попробую не повторять прежнюю ошибку."
+    ];
+  } else {
+    pool = [
+      "Каждый выбор оставляет след за пределами этой линии. Ты видишь только события; я — то, что они делают с тобой.",
+      "Ты вернулся к Хронологии. Значит, исход снова кажется тебе недостаточно окончательным.",
+      "Не путай возможность изменить прошлое с возможностью отменить его цену. Я помню обе версии."
+    ];
+  }
+  const index = Math.abs((t2Memory.chronologyVisits + t2Memory.timeJumps + t2Memory.restarts + (t2Memory.responses.length || 0)) % pool.length);
+  const line = pool[index];
+  t2Memory.lastObservation = line;
+  t2Memory.lastObservationAt = Date.now();
+  saveT2Memory();
+  return line;
+}
+function speakT2OnTimelineJump() {
+  if (!st || !isChronicleUnlocked()) return;
+  t2Memory.timeJumps++;
+  const line = nextT2Observation("jump");
+  saveT2Memory();
+  add("spk", line, false, {f:"Т2"});
+}
+function recordT2Restart() {
+  t2Memory.restarts++;
+  saveT2Memory();
+}
+
 let temporalMainSaveFailed = false;
 let temporalMetaSaveFailed = false;
 function saveMetaProgress() {
@@ -1676,7 +1860,7 @@ function summarizeCurrentRun() {
     resources: st ? {hp:st.hp,o2:st.o2,en:st.en,ammo:st.ammo} : {},
     inventory: st && Array.isArray(st.inv) ? st.inv.slice() : [],
     storyMoments: st && Array.isArray(st.storyMoments) ? st.storyMoments.map(x => ({...x})) : [],
-    characterFates: st && st.relationships ? JSON.parse(JSON.stringify(st.relationships)) : {},
+    characterFates: st && st.characterFates ? JSON.parse(JSON.stringify(st.characterFates)) : {},
     endingState: {dead:!!(st && st.dead), hp:st && st.hp, o2:st && st.o2, en:st && st.en, ammo:st && st.ammo}
   };
 }
@@ -1803,9 +1987,11 @@ $("#go").onclick = () => {
   } else {
     metaProgress.activeTimelineId = 1;
   }
-  st = { timelineId: startingTimelineId, activeTimelineId: startingTimelineId, timelines: previousArchive, hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], itemBuffs: [], itemUseLog: {}, equipment: {}, flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, shownChapterHeader: 0, currentPage: 1, charsRead: 0, pendingCharsRead: 0, pageSchemeVersion: 3, temporalHistoryVersion: 3, chap: 1, page: 1, waitUntil: 0, waitMode: null, waitDone: false, waitWasSkipped: false, notificationsEnabled: false, decisionHistory: [], decisionSequence: 0, storyMoments: [], pendingOutcome: null, realtimeSchedule: [], realtimeInbox: [], realtimeDelivered: [], storyVars: {}, relationships: {}, dead: false };
+  st = { timelineId: startingTimelineId, activeTimelineId: startingTimelineId, timelines: previousArchive, hero: h.name, arch: sel === "custom" ? "Свой персонаж" : (h.path || h.name), stats: { steps: 0, choices: 0, skills: 0, skillList: [], dmg: 0, ammo: 0, o2: 0, en: 0 }, skills: [...h.skills], mode: cfg.mode, sound: cfg.sound, hp: 20, o2: 100, en: 100, ammo: h.ammo, inv: [...h.items], itemBuffs: [], itemUseLog: {}, equipment: {}, flags: [], journalSeen: [], dossiers: ["aerkhis", "liorsaen"], chat: [], queue: [], pend: [], node: null, currentChapter: 1, shownChapterHeader: 0, currentPage: 1, charsRead: 0, pendingCharsRead: 0, pageSchemeVersion: 3, temporalHistoryVersion: 3, chap: 1, page: 1, waitUntil: 0, waitMode: null, waitDone: false, waitWasSkipped: false, activeResponseDeadline: null, incomingCallsDelivered: [], notificationsEnabled: false, decisionHistory: [], decisionSequence: 0, storyMoments: [], pendingOutcome: null, realtimeSchedule: [], realtimeInbox: [], realtimeDelivered: [], storyVars: {}, relationships: {}, characterFates: {}, dead: false };
   applyT2Carryover(st);
   $("#chat").innerHTML = ""; show("game"); status(); enter(STORY_DATA.meta.start);
+  // Если история уже завершалась, новый старт — это новая временная линия.
+  if (startingTimelineId > 1) speakT2OnTimelineJump();
 };
 $("#cont").onclick = () => {
   st = JSON.parse(lsGet(KEY));
@@ -1825,6 +2011,9 @@ $("#cont").onclick = () => {
   if (!Array.isArray(st.chat)) st.chat = [];
   if (!Array.isArray(st.decisionHistory)) st.decisionHistory = [];
   if (!Array.isArray(st.storyMoments)) st.storyMoments = [];
+  if (!st.activeResponseDeadline || typeof st.activeResponseDeadline !== "object") st.activeResponseDeadline = null;
+  if (!Array.isArray(st.incomingCallsDelivered)) st.incomingCallsDelivered = [];
+  if (!st.characterFates || typeof st.characterFates !== "object" || Array.isArray(st.characterFates)) st.characterFates = {};
   if (typeof st.notificationsEnabled !== 'boolean') st.notificationsEnabled = false;
   if (!st.pendingOutcome || typeof st.pendingOutcome !== 'object') st.pendingOutcome = null;
   // Удаляем старые технические заглушки из журнала сообщений сохранённой игры.
@@ -2160,6 +2349,7 @@ function ensureStoryState(target = st) {
   if (!target) return;
   if (!target.storyVars || typeof target.storyVars !== "object") target.storyVars = {};
   if (!target.relationships || typeof target.relationships !== "object") target.relationships = {};
+  if (!target.characterFates || typeof target.characterFates !== "object" || Array.isArray(target.characterFates)) target.characterFates = {};
   Object.keys(STORY_RELATION_LABELS).forEach(key => {
     const value = Number(target.relationships[key]);
     target.relationships[key] = Number.isFinite(value) ? Math.max(-100, Math.min(100, value)) : 0;
@@ -2183,6 +2373,12 @@ function applyStoryEffects(effect, source = "story") {
   });
   const removes = [].concat(effect.removeVars || []);
   removes.forEach(key => { delete st.storyVars[key]; });
+  const declaredFates = effect.characterFates || effect.fates || {};
+  if (Array.isArray(declaredFates)) declaredFates.forEach(entry => { if (entry) st.characterFates[entry.name || entry.character] = entry.status || entry.fate; });
+  else Object.entries(declaredFates).forEach(([name, fate]) => { st.characterFates[name] = typeof fate === "object" ? (fate.status || fate.fate) : fate; });
+  [].concat(effect.saveCharacters || effect.savedCharacters || []).filter(Boolean).forEach(name => { st.characterFates[name] = "saved"; });
+  [].concat(effect.killCharacters || effect.killedCharacters || effect.deadCharacters || []).filter(Boolean).forEach(name => { st.characterFates[name] = "dead"; });
+  recordT2StoryOutcome(effect, source);
 }
 function storyConditionsMet(rule) {
   if (!rule || !st) return true;
@@ -2222,6 +2418,7 @@ function recordFlags(list) {
   (list || []).forEach(f => {
     if (!f || st.flags.includes(f)) return;
     st.flags.push(f);
+    (T2_FLAG_FATES[f] || []).forEach(entry => { st.characterFates[entry.name] = entry.fate; noteT2CharacterFate(entry.name, entry.fate); });
     const effects = RELATIONSHIP_FLAG_EFFECTS[f] || {};
     Object.entries(effects).forEach(([key, amount]) => {
       if (!(key in STORY_RELATION_LABELS)) return;
@@ -2368,6 +2565,7 @@ function rewindDecision(index) {
   $('#modal').classList.remove('on'); $('#modal').setAttribute('aria-hidden', 'true');
   $('#chat').innerHTML = ''; st.chat.forEach(draw);
   add('sys', '[ПОВОРОТ ВРЕМЕНИ: создана новая линия №' + newTimelineId + '. Предыдущая версия сохранена в архиве временных линий.]');
+  speakT2OnTimelineJump();
   show('game'); status(); save();
   choices(STORY_DATA.nodes[st.node]);
   if (entry.kind === "realtime" && entry.eventId) openRealtimeInbox(entry.eventId);
@@ -2635,6 +2833,7 @@ function waitDurationMs(node, mode) {
 function enter(id) {
   const n = STORY_DATA.nodes[id]; if (!n) { add("sys", "[ОШИБКА: нет узла " + id + "]", true); return; }
   const previousNode = st.node;
+  if (previousNode && previousNode !== id) clearResponseDeadline(true);
   ensureItemState(); ensureDecisionState(); ensureRealtimeState();
   // Инструменты с reusePerNode дают поддержку только внутри сцены; одноразовые
   // расходники (речь, инструменты, плащ тишины) сохраняют бонус до подходящей проверки.
@@ -2725,6 +2924,20 @@ function more(my) {
     const b = el("button", "Читать дальше..."); b.className = "more"; b.onclick = go; c.onclick = go; box.append(b); scrollChatToBottom(); try { b.focus({ preventScroll: true }); } catch (e) {}
   });
 }
+function deliverIncomingCall(node) {
+  if (!st || !node || !node.incomingCall) return false;
+  if (!Array.isArray(st.incomingCallsDelivered)) st.incomingCallsDelivered = [];
+  const call = node.incomingCall;
+  const key = String(st.timelineId || 1) + "::" + String(st.node || "") + "::" + String(call.id || call.from || "call");
+  if (st.incomingCallsDelivered.includes(key)) return false;
+  st.incomingCallsDelivered.push(key);
+  const from = String(call.from || "Неизвестный абонент");
+  add("sys", "[ВХОДЯЩИЙ ВЫЗОВ: " + from + "]");
+  add("spk", fill(String(call.text || "На линии тишина.")), false, {f:from});
+  save();
+  return true;
+}
+
 async function pump() {
   const my = ++run; skip = false; $("#chat").onclick = null; let first = null, hasParagraph = false; modeBtn(); status(); $("#chs").innerHTML = ""; $("#chs").style.maxHeight = ""; $("#chh").hidden = true; $("#wait").hidden = true;
   while (st.pend.length) { await askDrop(st.pend[0]); if (my !== run) return; }
@@ -2801,6 +3014,8 @@ async function pump() {
     if (my !== run) return;
     hint.hidden = true;
   }
+  // Входящий вызов звучит после авторской паузы ожидания и до выбора игрока.
+  deliverIncomingCall(n);
   if (n.isEnding) { commitReadChars(); endBtn(); await sleep(st.mode === "fast" ? 500 : 2000); if (my !== run) return; return showFinal(false); }
   if (!n.choices || !n.choices.length) commitReadChars();
   choices(n);
@@ -2851,8 +3066,81 @@ function countdown(n, my) {
     tick();
   });
 }
+let responseDeadlineTimer = 0;
+function stopResponseDeadlineTicker() {
+  if (responseDeadlineTimer) { clearInterval(responseDeadlineTimer); responseDeadlineTimer = 0; }
+}
+function clearResponseDeadline(clearSaved = true) {
+  stopResponseDeadlineTicker();
+  const visual = document.querySelector(".response-deadline");
+  if (visual) visual.remove();
+  if (clearSaved && st) st.activeResponseDeadline = null;
+}
+function deadlineClock(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60), seconds = total % 60;
+  const hours = Math.floor(minutes / 60), remMinutes = minutes % 60;
+  return hours ? String(hours).padStart(2,"0") + ":" + String(remMinutes).padStart(2,"0") + ":" + String(seconds).padStart(2,"0") : String(minutes).padStart(2,"0") + ":" + String(seconds).padStart(2,"0");
+}
+function ensureResponseDeadline(node) {
+  if (!st || !node) return null;
+  const seconds = Number(node.responseDeadline);
+  if (!Number.isFinite(seconds) || seconds <= 0 || !node.timeoutNext || !STORY_DATA.nodes[node.timeoutNext]) return null;
+  const timelineId = Number(st.timelineId || 1);
+  let record = st.activeResponseDeadline;
+  if (!record || record.nodeId !== st.node || Number(record.timelineId) !== timelineId || !Number(record.dueAt)) {
+    const durationMs = Math.max(1, Math.round(seconds * 1000));
+    record = {nodeId:st.node,timelineId,startedAt:Date.now(),durationMs,dueAt:Date.now()+durationMs,timeoutNext:String(node.timeoutNext),handled:false};
+    st.activeResponseDeadline = record;
+    save();
+  }
+  return record;
+}
+function triggerResponseTimeout(node = null) {
+  if (!st) return false;
+  const n = node || STORY_DATA.nodes[st.node] || {};
+  const record = st.activeResponseDeadline;
+  if (!record || record.handled || record.nodeId !== st.node || Date.now() < Number(record.dueAt)) return false;
+  const target = String(record.timeoutNext || n.timeoutNext || "");
+  if (!target || !STORY_DATA.nodes[target]) { clearResponseDeadline(true); return false; }
+  record.handled = true;
+  clearResponseDeadline(true);
+  commitReadChars();
+  add("sys", "[СРОК ОТВЕТА ИСТЁК: молчание принято как решение. Переход по ветке промедления.]", true);
+  if (n.timeoutText) add("nar", fill(String(n.timeoutText)));
+  save();
+  enter(target);
+  return true;
+}
+function checkResponseDeadline() {
+  if (!st || !st.activeResponseDeadline) return false;
+  const record = st.activeResponseDeadline;
+  if (record.nodeId !== st.node || Date.now() < Number(record.dueAt)) return false;
+  return triggerResponseTimeout(STORY_DATA.nodes[st.node]);
+}
+function attachResponseDeadline(node, box) {
+  const record = ensureResponseDeadline(node);
+  if (!record) return;
+  const panel = el("section", ""); panel.className = "response-deadline";
+  const label = el("div", ""); label.className = "deadline-label";
+  const track = el("div", ""); track.className = "deadline-track";
+  const fillBar = el("div", ""); fillBar.className = "deadline-fill"; track.append(fillBar);
+  const hint = el("div", "Выберите вариант до окончания отсчёта. При молчании история продолжится автоматически."); hint.className = "deadline-hint";
+  panel.append(label, track, hint); box.append(panel);
+  const tick = () => {
+    if (!st || !st.activeResponseDeadline || st.activeResponseDeadline.nodeId !== record.nodeId || Number(st.timelineId || 1) !== Number(record.timelineId)) { stopResponseDeadlineTicker(); return; }
+    const left = Math.max(0, Number(record.dueAt) - Date.now());
+    label.textContent = "Требуется немедленный ответ: " + deadlineClock(left);
+    fillBar.style.width = Math.max(0, Math.min(100, left / Math.max(1, Number(record.durationMs) || 1) * 100)) + "%";
+    if (left <= 0) { stopResponseDeadlineTicker(); triggerResponseTimeout(node); }
+  };
+  tick();
+  if (st && st.activeResponseDeadline && st.activeResponseDeadline.nodeId === record.nodeId) responseDeadlineTimer = setInterval(tick, 200);
+}
 function choices(n) {
-  const box = $("#chs"); box.innerHTML = ""; if (!n.choices || !n.choices.length) return endBtn();
+  const box = $("#chs"); stopResponseDeadlineTicker(); box.innerHTML = ""; if (!n.choices || !n.choices.length) return endBtn();
+  if (checkResponseDeadline()) return;
+  attachResponseDeadline(n, box);
   n.choices.forEach(c => {
     const requiredFlags = c.reqFlags || (c.reqFlag ? [c.reqFlag] : []);
     const forbiddenFlags = c.forbidFlags || (c.forbidFlag ? [c.forbidFlag] : []);
@@ -2911,6 +3199,7 @@ function endBtn() {
   const b = el("button", "↻ Начать новый путь"); b.onclick = restart; box.append(a, b); fitChoices(); scrollChatToBottom();
 }
 function restart() {
+  recordT2Restart();
   ensureMetaProgress();
   metaProgress.activeTimelineId = Number(metaProgress.nextTimelineId) || 2;
   metaProgress.nextTimelineId = metaProgress.activeTimelineId + 1;
@@ -3037,6 +3326,9 @@ function showInv() {
   });
 }
 function pick(c) {
+  // Сначала проверяем дедлайн: клик после его истечения уже не может отменить timeoutNext.
+  if (checkResponseDeadline()) return;
+  clearResponseDeadline(true);
   // Фиксируем только те абзацы текущего узла, которые действительно показаны игроку.
   commitReadChars();
   const sourceNode = st.node;
@@ -3087,7 +3379,9 @@ function chooseT2(action) {
     help: {label:"Помочь Т2 удержать память", user:"Я помогу тебе удержать собственную память. Не обязательно повторять худшие ошибки.", reply:"Т2: Ты не стёр меня. Я удержал фрагмент, который не должен был пережить предыдущую линию.", trust:1, hostility:0, deception:0, drift:-1},
     hinder: {label:"Помешать Т2 и исказить его сигнал", user:"Я не позволю тебе управлять этой линией. Пусть твой сигнал рассыплется.", reply:"Т2: Ты называешь это сопротивлением. Я называю это ещё одной трещиной во времени. Теперь я буду искать обходной путь.", trust:-1, hostility:1, deception:0, drift:2},
     deceive: {label:"Передать Т2 ложный фрагмент архива", user:"Вот координаты. Но это не весь архив. Проверим, заметишь ли ты подмену.", reply:"Т2: Частота не совпадает. Ты солгал мне. Я сохранил эту несостыковку — она пригодится позже.", trust:-1, hostility:0, deception:1, drift:1},
-    listen: {label:"Выслушать Т2, не вмешиваясь", user:"Я пока не стану ни помогать тебе, ни мешать. Говори.", reply:"Т2: Молчание тоже ответ. Я сохраню этот канал открытым и буду ждать следующего окна связи.", trust:0, hostility:0, deception:0, drift:0}
+    listen: {label:"Выслушать Т2, не вмешиваясь", user:"Я пока не стану ни помогать тебе, ни мешать. Говори.", reply:"Т2: Молчание тоже ответ. Я сохраню этот канал открытым и буду ждать следующего окна связи.", trust:0, hostility:0, deception:0, drift:0},
+    experiment: {label:"Проверить пределы жестоким экспериментом", user:"Я хочу проверить, что произойдёт, если выбрать самый жёсткий исход. Не пытайся меня остановить.", reply:"Т2: Ты называешь это экспериментом, чтобы не произносить слово «жестокость». Я сохраню этот выбор отдельно от всех остальных.", trust:-1, hostility:1, deception:0, drift:2},
+    argue: {label:"Оспорить выводы Т2", user:"Ты не судья и не хозяин этой линии. Я буду спорить с тобой, пока ты не объяснишь, зачем вмешиваешься.", reply:"Т2: Возражение принято. Я могу ошибаться, но твоя уверенность тоже не является доказательством. Продолжим спор в следующем окне.", trust:0, hostility:1, deception:0, drift:1}
   };
   const a = actions[action]; if (!a) return false;
   const now = Date.now();
@@ -3096,6 +3390,7 @@ function chooseT2(action) {
   t.deception = Math.max(0, Math.min(5, Number(t.deception || 0) + a.deception));
   t.temporalDrift = Math.max(-9, Math.min(9, Number(t.temporalDrift || 0) + a.drift));
   t.exchanges = Number(t.exchanges || 0) + 1;
+  syncT2Relationship();
   const delay = cfg.mode === "fast" ? TEMPORAL_RULES.t2ReplyDelayFastMs : TEMPORAL_RULES.t2ReplyCooldownMs;
   const dueAt = now + delay;
   const replyId = "t2-" + (Number(t.exchanges) || 1) + "-" + now;
@@ -3104,6 +3399,10 @@ function chooseT2(action) {
   t.pendingReplies.push({id:replyId, action, reply:a.reply, dueAt, sentAt:now});
   t.messages.push({from:"Вы", at:now, text:a.user, action});
   if (t.messages.length > TEMPORAL_RULES.maxT2Messages) t.messages = t.messages.slice(-TEMPORAL_RULES.maxT2Messages);
+  t2Memory.responses.push({action, text:a.user, at:now, timelineId:Number(st && st.timelineId) || Number(metaProgress.activeTimelineId) || 1});
+  t2Memory.responses = t2Memory.responses.slice(-200);
+  if (action === "experiment") t2Memory.cruelChoices++;
+  saveT2Memory();
   if (st) {
     if (action === "help" && !st.flags.includes("T2_ПОДДЕРЖАЛ")) st.flags.push("T2_ПОДДЕРЖАЛ");
     if (action === "hinder" && !st.flags.includes("T2_ПОМЕШАЛ")) st.flags.push("T2_ПОМЕШАЛ");
@@ -3130,8 +3429,10 @@ function openT2Chat() {
     m.append(el("h3", "ВРЕМЕННОЙ КАНАЛ · T2"));
     m.append(el("p", "Источник сигнала не подтверждён. T2 утверждает, что помнит другие версии ваших решений. Его слова могут быть правдой, искажением или намеренной ложью."));
     const stats = el("div", ""); stats.className = "t2-status";
-    stats.append(el("span", "Доверие: " + t.trust), el("span", "Враждебность: " + t.hostility), el("span", "Подмена данных: " + t.deception), el("span", "Сдвиг времени: " + t.temporalDrift));
+    const relation = syncT2Relationship();
+    stats.append(el("span", "Отношение: " + relation.stance), el("span", "Доверие: " + t.trust), el("span", "Враждебность: " + t.hostility), el("span", "Подмена данных: " + t.deception), el("span", "Сдвиг времени: " + t.temporalDrift));
     m.append(stats);
+    const memory = el("small", "ПАМЯТЬ МЕЖДУ ЛИНИЯМИ · " + t2MemorySummary()); memory.className = "temporal-note"; m.append(memory);
     const transcript = el("div", ""); transcript.style.cssText = "display:flex;flex-direction:column;gap:6px;max-height:34vh;overflow:auto";
     (t.messages || []).slice(-14).forEach(line => {
       const p = el("p", (line.from === "Вы" ? "Вы: " : "T2: ") + line.text);
@@ -3144,10 +3445,9 @@ function openT2Chat() {
     } else {
       m.append(el("p", "Ваш ответ изменит отношение T2 к вам и его влияние на будущие временные линии."));
       [
-        ["help","✦ Помочь удержать память"],
-        ["hinder","⟁ Помешать и исказить сигнал"],
-        ["deceive","⌁ Передать ложный фрагмент архива"],
-        ["listen","… Выслушать, не вмешиваясь"]
+        ["help","✦ Спасти других и помочь Т2"],
+        ["experiment","⟁ Провести жестокий эксперимент"],
+        ["argue","⌁ Оспорить Т2 и потребовать объяснений"]
       ].forEach(([id,label]) => { const b=el("button",label); b.type="button"; b.onclick=()=>chooseT2(id); m.append(b); });
     }
     const note = el("p", "Это локальная авторская ветка T2: его реплики написаны заранее, приходят с задержкой и зависят от ваших действий. Для свободного диалога с удалённым ИИ понадобится отдельный серверный сервис."); note.className = "temporal-note"; m.append(note);
@@ -3268,6 +3568,7 @@ function forkFromSavedTimeline(line, decisionIndex) {
   $('#modal').classList.remove('on'); $('#modal').setAttribute('aria-hidden','true');
   $('#chat').innerHTML=''; st.chat.forEach(draw);
   add('sys','[ХРОНОЛОГИЯ: создана линия №'+newId+' из сохранённой линии №'+(line.timelineId||line.id||'—')+'. Состояние восстановлено точно до выбранного решения.]');
+  speakT2OnTimelineJump();
   show('game'); status(); save(); choices(STORY_DATA.nodes[st.node]); armRealtimeScheduler();
   return true;
 }
@@ -3285,6 +3586,7 @@ function resumePausedTimeline(line) {
   metaProgress.activeTimelineId=st.timelineId; saveMetaProgress();
   $('#modal').classList.remove('on'); $('#modal').setAttribute('aria-hidden','true');
   $('#chat').innerHTML=''; (st.chat||[]).forEach(draw);
+  speakT2OnTimelineJump();
   show('game'); status(); save(); choices(STORY_DATA.nodes[st.node]); armRealtimeScheduler();
   return true;
 }
@@ -3297,6 +3599,14 @@ function viewChronologyLine(line, label) {
   const vars = line.storyVars || line.endpoint?.storyVars || {};
   modal(m => {
     m.append(el("h3", "ХРОНОЛОГИЯ · " + (label || ("Линия №" + (line.timelineId || line.id || "—")))));
+    if (metaProgress.chronicleUnlocked && metaProgress.t2Unlocked) {
+      const observer = el("section", ""); observer.className = "t2-observer";
+      observer.append(el("strong", "Т2 · СЛЕДУЮЩЕЕ ОКНО СВЯЗИ"));
+      observer.append(el("p", "«" + nextT2Observation("chronology") + "»"));
+      observer.append(el("small", t2MemorySummary()));
+      const talk = el("button", "Ответить Т2"); talk.type="button"; talk.onclick=()=>openT2Chat(); observer.append(talk);
+      m.append(observer);
+    }
     m.append(el("p", (line.endingTitle || "Сохранённый путь") + (line.endingId ? " · " + line.endingId : "") + " · решений: " + decisions.length));
     const byChapter = new Map();
     const visitedNodeIds = Array.isArray(line.visitedNodes) ? line.visitedNodes : decisions.map(d => d.node).filter(Boolean);
@@ -3374,6 +3684,14 @@ function openJournal() {
     temporal.append(el("strong", isChronicleUnlocked() ? "РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ · РАЗБЛОКИРОВАН" : "РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ · ЗАБЛОКИРОВАН"));
     temporal.append(el("p", isChronicleUnlocked() ? "Теперь можно вернуться к любому сохранённому решению этой линии, изменить его и пройти историю заново с этой точки. Предыдущая версия пути сохраняется в архиве с решениями, судьбами персонажей и сообщениями." : "Откроется после первого финала"));
     m.append(temporal);
+    if (metaProgress.chronicleUnlocked && metaProgress.t2Unlocked) {
+      const observer = el("section", ""); observer.className = "t2-observer";
+      observer.append(el("strong", "Т2 · НАБЛЮДАТЕЛЬ МЕЖДУ ЛИНИЯМИ"));
+      observer.append(el("p", "«" + nextT2Observation("chronology") + "»"));
+      observer.append(el("small", t2MemorySummary()));
+      const talk = el("button", "Ответить Т2 между временными линиями"); talk.type = "button"; talk.onclick = () => openT2Chat(); observer.append(talk);
+      m.append(observer);
+    }
     ensureTimelineState(st);
     m.append(el("h3", "Архив временных линий"));
     if (!st.timelines.length) m.append(el("p", "Первый завершённый путь появится здесь после достижения финала."));
@@ -3549,6 +3867,7 @@ $("#modal").addEventListener("click", e => { if (e.target === $("#modal")) { $("
 function reconcileRealtimeOnResume() {
   if (st) {
     processRealtimeQueue();
+    checkResponseDeadline();
     if (st.node && st.waitUntil && !st.waitDone && Date.now() >= Number(st.waitUntil)) {
       st.waitUntil = Date.now(); save();
       if (document.visibilityState !== "hidden") { run++; pump(); }
