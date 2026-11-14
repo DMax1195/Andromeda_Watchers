@@ -435,6 +435,7 @@ body {
 .chronology-map .temporal-branch{margin:0}
 .chronology-map .journal-note{margin:8px 0;padding:10px;border-left:2px solid rgba(150,190,215,.35)}
 .chronology-map button{width:100%;margin-top:8px;white-space:normal}
+#spChronicle{letter-spacing:.12em;box-shadow:0 0 18px #9a83ff22}#spChronicle[hidden]{display:none!important}
 .response-deadline{width:100%;padding:8px 10px 9px;margin:0 0 2px;border:1px solid rgba(255,107,139,.48);border-left:3px solid var(--rd);border-radius:8px;background:linear-gradient(100deg,#281321,#17101c);display:flex;flex-direction:column;gap:6px}
 .response-deadline .deadline-label{font-size:12px;font-weight:700;color:#ffd6df;letter-spacing:.02em}
 .response-deadline .deadline-track{height:5px;border-radius:8px;background:#472433;overflow:hidden}
@@ -447,7 +448,7 @@ body {
 </style></head><body>
 
 <div id="loader" class="scr on"><div class="ld-t" id="ldT"></div><div class="ld-bar"><i id="ldbar"></i></div><div id="ldlog"></div><div class="cred" id="ldA"></div></div>
-<div id="splash" class="scr"><div class="cv"></div><div class="shade"></div><canvas id="snow"></canvas><div class="in"><div class="cover-title"><div class="kick">АВТОРСКАЯ КНИГА-ИГРА</div><h1 class="ttl" id="spT" aria-label="НАБЛЮДАТЕЛИ АНДРОМЕДЫ"><span class="title-line" id="spT1">НАБЛЮДАТЕЛИ</span><span class="title-line" id="spT2">АНДРОМЕДЫ</span></h1></div><div class="sub" id="spS"></div><div class="blurb" id="spB"></div><div class="cred" id="spF"></div><button id="spGo" class="big">НАЧАТЬ ИГРУ</button><button id="spCont" class="big" style="display:none;background:var(--pn);color:var(--tx);border:1px solid var(--ln)">ПРОДОЛЖИТЬ</button><div class="cred" id="spC"></div><div class="cred" id="spA"></div></div></div>
+<div id="splash" class="scr"><div class="cv"></div><div class="shade"></div><canvas id="snow"></canvas><div class="in"><div class="cover-title"><div class="kick">АВТОРСКАЯ КНИГА-ИГРА</div><h1 class="ttl" id="spT" aria-label="НАБЛЮДАТЕЛИ АНДРОМЕДЫ"><span class="title-line" id="spT1">НАБЛЮДАТЕЛИ</span><span class="title-line" id="spT2">АНДРОМЕДЫ</span></h1></div><div class="sub" id="spS"></div><div class="blurb" id="spB"></div><div class="cred" id="spF"></div><button id="spGo" class="big">НАЧАТЬ ИГРУ</button><button id="spCont" class="big" style="display:none;background:var(--pn);color:var(--tx);border:1px solid var(--ln)">ПРОДОЛЖИТЬ</button><button id="spChronicle" class="big" hidden style="background:linear-gradient(105deg,#182641,#241b3c);color:#e6e9ff;border:1px solid #655b91">⧖ ХРОНОЛОГИЯ</button><div class="cred" id="spC"></div><div class="cred" id="spA"></div></div></div>
 <div id="prologue" class="scr"><div class="in"><div class="kick">ПРОЛОГ · СТР. 1–4</div><div id="pr"></div><button id="prGo" class="big pp">ВЫБРАТЬ ПУТЬ</button></div></div>
 <div id="setup" class="scr">
  <h1>ВЫБОР ПУТИ</h1><div style="color:var(--dim)">Вы Лиор’Саэн, тихий спутник, чей свет ведёт Аэ́рхиса. Выберите путь Наблюдателя.</div><div class="cred" id="credA"></div><div class="cred" id="ucA"></div>
@@ -3653,6 +3654,117 @@ function viewChronologyLine(line, label) {
   });
 }
 
+function collectChronologyEntries() {
+  ensureMetaProgress();
+  const entries = [];
+  const seen = new Set();
+  const add = (kind, data, label, key) => {
+    if (!data || typeof data !== "object") return;
+    const unique = key || (kind + ":" + (data.timelineId || data.id || entries.length) + ":" + (data.endingId || data.forkNode || ""));
+    if (seen.has(unique)) return;
+    seen.add(unique);
+    entries.push({kind, data, label: label || ("Линия №" + (data.timelineId || data.id || "—"))});
+  };
+  const appendSavedRun = saved => {
+    if (!saved || typeof saved !== "object") return;
+    (Array.isArray(saved.timelines) ? saved.timelines : []).forEach(line => {
+      add("completed", line, "Линия №" + (line.timelineId || "—") + " · " + (line.endingTitle || "завершена"), "line:" + (line.timelineId || "") + ":" + (line.endingId || ""));
+    });
+    // Текущая сохранённая ветка тоже доступна для просмотра, даже если финал ещё не достигнут.
+    if (saved.node && !saved.dead) {
+      const active = {...saved,
+        decisions: Array.isArray(saved.decisionHistory) ? saved.decisionHistory : [],
+        visitedNodes: Array.isArray(saved.visitedNodes) ? saved.visitedNodes : [],
+        storyMoments: Array.isArray(saved.storyMoments) ? saved.storyMoments : [],
+        resources: {hp:saved.hp,o2:saved.o2,en:saved.en,ammo:saved.ammo,inventory:Array.isArray(saved.inv)?saved.inv:[]}
+      };
+      add("active", active, "Текущая линия №" + (saved.activeTimelineId || saved.timelineId || 1), "active:" + (saved.activeTimelineId || saved.timelineId || 1));
+    }
+  };
+  if (st) appendSavedRun(st);
+  try {
+    const saved = JSON.parse(lsGet(KEY) || "null");
+    if (saved && saved !== st) appendSavedRun(saved);
+  } catch (e) {}
+  (metaProgress.completedRoutes || []).forEach(line => {
+    add("completed", line, "Линия №" + (line.timelineId || "—") + " · " + (line.endingTitle || "завершена"), "line:" + (line.timelineId || "") + ":" + (line.endingId || ""));
+  });
+  (metaProgress.alternateLines || []).forEach(line => {
+    add("alternate", line, "Ответвление №" + (line.forkedIntoTimelineId || line.id || "—"), "alternate:" + (line.archiveId || line.id || entries.length));
+  });
+  (metaProgress.pausedLines || []).forEach((line, i) => {
+    add("paused", line, "Приостановленная линия №" + (line.timelineId || "—"), "paused:" + (line.timelineId || "") + ":" + (line.pausedAt || i));
+  });
+  return entries;
+}
+
+function openChronologyFromSplash() {
+  ensureMetaProgress();
+  if (!isChronicleUnlocked()) {
+    modal(m => {
+      m.append(el("h3", "ХРОНОЛОГИЯ ЗАБЛОКИРОВАНА"));
+      m.append(el("p", "Первый доступ к Хронологии появится после достижения полноценного сюжетного финала."));
+    });
+    return;
+  }
+  metaProgress.chronicleUnlocked = true;
+  metaProgress.t2Unlocked = true;
+  saveMetaProgress();
+  const entries = collectChronologyEntries();
+  const observation = nextT2Observation("chronology");
+  saveT2Memory();
+  modal(m => {
+    m.append(el("h3", "ХРОНОЛОГИЯ"));
+    m.append(el("p", "Наблюдатель между линиями сохраняет ваши решения. Выберите завершённую, текущую или приостановленную ветку, чтобы изучить её ход и последствия."));
+
+    const observer = el("section", ""); observer.className = "t2-observer";
+    observer.append(el("strong", "Т2 · НАБЛЮДАТЕЛЬ МЕЖДУ ВРЕМЕННЫМИ ЛИНИЯМИ"));
+    observer.append(el("p", "«" + observation + "»"));
+    observer.append(el("small", t2MemorySummary()));
+    const talk = el("button", "Ответить Т2 между линиями"); talk.type = "button"; talk.onclick = () => openT2Chat(); observer.append(talk);
+    m.append(observer);
+
+    m.append(el("h3", "ПЕРЕКЛЮЧЕНИЕ ВРЕМЕННЫХ ЛИНИЙ"));
+    const select = document.createElement("select"); select.className = "temporal-line-select";
+    const placeholder = document.createElement("option"); placeholder.value = "";
+    placeholder.textContent = entries.length ? "Выберите временную линию…" : "Архив пока пуст — первая линия ещё не сохранена";
+    select.append(placeholder);
+    entries.forEach((entry, i) => {
+      const option = document.createElement("option"); option.value = String(i); option.textContent = entry.label; select.append(option);
+    });
+    select.disabled = entries.length === 0;
+    m.append(select);
+    const openLine = el("button", "Открыть выбранную линию"); openLine.type = "button"; openLine.disabled = entries.length === 0;
+    const showEntry = entry => {
+      if (!entry) return;
+      if (entry.kind === "paused") {
+        modal(box => {
+          box.append(el("h3", entry.label));
+          box.append(el("p", "Эта линия была приостановлена при создании ответвления. Её можно восстановить из сохранённого состояния."));
+          const resume = el("button", "Продолжить эту временную линию"); resume.type = "button"; resume.onclick = () => resumePausedTimeline(entry.data); box.append(resume);
+        });
+      } else if (entry.kind === "alternate") {
+        viewArchivedTimeline(entry.data);
+      } else {
+        viewChronologyLine(entry.data, entry.label);
+      }
+    };
+    select.onchange = () => { openLine.disabled = select.value === ""; };
+    openLine.onclick = () => showEntry(entries[Number(select.value)]);
+    m.append(openLine);
+    if (!entries.length) {
+      const empty = el("p", "После первого завершённого пути здесь появится архив с решениями, посещёнными главами и судьбами персонажей. Сейчас доступен канал Т2 — можно начать разговор уже между линиями.");
+      empty.className = "temporal-note"; m.append(empty);
+    } else {
+      const summary = el("p", "Сохранённых веток: " + entries.length + ". Просмотр архива не меняет активное прохождение. Изменение прошлых решений создаёт отдельную временную линию.");
+      summary.className = "temporal-note"; m.append(summary);
+    }
+    const close = el("button", "Вернуться на начальный экран"); close.type = "button";
+    close.onclick = () => { $("#modal").classList.remove("on"); $("#modal").setAttribute("aria-hidden", "true"); show("splash"); };
+    m.append(close);
+  });
+}
+
 function openJournal() {
   if (!st) return;
   if (!Array.isArray(st.journalSeen)) st.journalSeen = [];
@@ -3681,7 +3793,7 @@ function openJournal() {
     });
     ensureMetaProgress();
     const temporal = el("section", ""); temporal.className = "temporal-panel" + (isChronicleUnlocked() ? "" : " temporal-locked");
-    temporal.append(el("strong", isChronicleUnlocked() ? "РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ · РАЗБЛОКИРОВАН" : "РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ · ЗАБЛОКИРОВАН"));
+    temporal.append(el("strong", isChronicleUnlocked() ? "ХРОНОЛОГИЯ · РАЗБЛОКИРОВАНА" : "ХРОНОЛОГИЯ · ЗАБЛОКИРОВАНА"));
     temporal.append(el("p", isChronicleUnlocked() ? "Теперь можно вернуться к любому сохранённому решению этой линии, изменить его и пройти историю заново с этой точки. Предыдущая версия пути сохраняется в архиве с решениями, судьбами персонажей и сообщениями." : "Откроется после первого финала"));
     m.append(temporal);
     if (metaProgress.chronicleUnlocked && metaProgress.t2Unlocked) {
@@ -3890,6 +4002,9 @@ const countTxt = () => "Открыто концовок: " + getU().filter(i => 
 function refresh() {
   $("#spC").textContent = $("#ucA").textContent = countTxt(); const sv = !!lsGet(KEY);
   $("#cont").style.display = $("#spCont").style.display = sv ? "" : "none";
+  const unlocked = isChronicleUnlocked();
+  $("#spChronicle").hidden = !unlocked;
+  if (unlocked) saveMetaProgress();
 }
 function showFinal(dead) {
   const M = STORY_DATA.meta, n = STORY_DATA.nodes[st.node] || {}, E = M.endings, id = dead ? M.deathEnding : st.node, def = E[id] || {}, fresh = unlock(id), S = st.stats, box = $("#fn");
@@ -3903,7 +4018,7 @@ function showFinal(dead) {
   A("h2", dead ? M.deathTitle : (n.endingTitle || def.title || "Финал"), "fh" + (dead ? " bad" : ""));
   A("div", num ? "Концовка " + num + " из " + M.endingTotal + (dead ? ": " + def.title : "") + (fresh ? "   ✦ НОВАЯ КОНЦОВКА" : "") : "Этот финал не входит в число концовок", "fs");
   ep && A("p", ep, "fe");
-  if (temporalJustUnlocked) { const p=A("p", "✦ ОТКРЫТ РЕЖИМ ВРЕМЕННЫХ ЛИНИЙ. Теперь можно вернуться к прежним решениям, изменить их и увидеть другую версию событий. Также открыт канал связи T2.", "temporal-panel"); }
+  if (temporalJustUnlocked) { const p=A("p", "✦ ОТКРЫТА ХРОНОЛОГИЯ. Теперь можно вернуться к прежним решениям, изменить их и увидеть другую версию событий. Также открыт канал связи T2.", "temporal-panel"); }
   A("h3", "Карточка Наблюдателя"); KV([["Позывной", st.hero], ["Архетип", st.arch], ["Навыки", st.skills.join(", ")]]);
   A("h3", "Итоговая телеметрия"); KV([[LB.hp, st.hp + " / 20"], [LB.o2, st.o2 + "%"], [LB.en, st.en + "%"], [LB.ammo, st.ammo]]);
   A("h3", "Статистика прохождения");
@@ -3986,6 +4101,7 @@ function prologue() {
 }
 $("#spGo").onclick = () => { sfx.click(); prologue(); };
 $("#spCont").onclick = () => $("#cont").onclick();
+$("#spChronicle").onclick = () => { sfx.click(); openChronologyFromSplash(); };
 $("#prGo").onclick = () => { sfx.click(); show("setup"); };
 refresh(); drawSetup(); boot();
 // Планировщик не открывает игру сам, но проверяет мета-ответы T2 и запланированные события при загрузке.
