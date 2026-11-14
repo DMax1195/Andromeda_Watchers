@@ -448,7 +448,7 @@ body {
 </style></head><body>
 
 <div id="loader" class="scr on"><div class="ld-t" id="ldT"></div><div class="ld-bar"><i id="ldbar"></i></div><div id="ldlog"></div><div class="cred" id="ldA"></div></div>
-<div id="splash" class="scr"><div class="cv"></div><div class="shade"></div><canvas id="snow"></canvas><div class="in"><div class="cover-title"><div class="kick">АВТОРСКАЯ КНИГА-ИГРА</div><h1 class="ttl" id="spT" aria-label="НАБЛЮДАТЕЛИ АНДРОМЕДЫ"><span class="title-line" id="spT1">НАБЛЮДАТЕЛИ</span><span class="title-line" id="spT2">АНДРОМЕДЫ</span></h1></div><div class="sub" id="spS"></div><div class="blurb" id="spB"></div><div class="cred" id="spF"></div><button id="spGo" class="big">НАЧАТЬ ИГРУ</button><button id="spCont" class="big" style="display:none;background:var(--pn);color:var(--tx);border:1px solid var(--ln)">ПРОДОЛЖИТЬ</button><button id="spChronicle" class="big" hidden style="background:linear-gradient(105deg,#182641,#241b3c);color:#e6e9ff;border:1px solid #655b91">⧖ ХРОНОЛОГИЯ</button><div class="cred" id="spC"></div><div class="cred" id="spA"></div></div></div>
+<div id="splash" class="scr"><div class="cv"></div><div class="shade"></div><canvas id="snow"></canvas><div class="in"><div class="cover-title"><div class="kick">АВТОРСКАЯ КНИГА-ИГРА</div><h1 class="ttl" id="spT" aria-label="НАБЛЮДАТЕЛИ АНДРОМЕДЫ"><span class="title-line" id="spT1">НАБЛЮДАТЕЛИ</span><span class="title-line" id="spT2">АНДРОМЕДЫ</span></h1></div><div class="sub" id="spS"></div><div class="blurb" id="spB"></div><div class="cred" id="spF"></div><button id="spGo" class="big">НАЧАТЬ ИГРУ</button><button id="spCont" class="big" style="display:none;background:var(--pn);color:var(--tx);border:1px solid var(--ln)">ПРОДОЛЖИТЬ</button><button id="spChronicle" class="big" hidden style="background:linear-gradient(105deg,#182641,#241b3c);color:#e6e9ff;border:1px solid #8e7ac8">⧖ ХРОНОЛОГИЯ (Т2)</button><div class="cred" id="spC"></div><div class="cred" id="spA"></div></div></div>
 <div id="prologue" class="scr"><div class="in"><div class="kick">ПРОЛОГ · СТР. 1–4</div><div id="pr"></div><button id="prGo" class="big pp">ВЫБРАТЬ ПУТЬ</button></div></div>
 <div id="setup" class="scr">
  <h1>ВЫБОР ПУТИ</h1><div style="color:var(--dim)">Вы Лиор’Саэн, тихий спутник, чей свет ведёт Аэ́рхиса. Выберите путь Наблюдателя.</div><div class="cred" id="credA"></div><div class="cred" id="ucA"></div>
@@ -3768,9 +3768,23 @@ function openChronologyFromSplash() {
   metaProgress.chronicleUnlocked = true;
   metaProgress.t2Unlocked = true;
   saveMetaProgress();
+  // Доставляем ожидавшиеся ответы и гарантируем первый контакт даже если
+  // Хронология была открыта тестовым флагом вручную, без сохранённого финала.
+  processT2Replies(Date.now());
   const entries = collectChronologyEntries();
   const observation = nextT2Observation("chronology");
+  const t2 = metaProgress.t2;
+  if (!Array.isArray(t2.messages)) t2.messages = [];
+  if (!t2.messages.length) {
+    t2.messages.push({from:"T2", at:Date.now(), text:"Связь восстановлена. Я — Т2. Ты вернулся не к одной истории, а ко всем её несовместимым версиям. Прежде чем менять прошлое, ответь: ты пытаешься кого-то спасти или хочешь узнать, насколько далеко можно зайти?"});
+  }
+  if (!t2.messages.length || t2.messages[t2.messages.length - 1].text !== observation) {
+    t2.messages.push({from:"T2", at:Date.now(), text:observation, context:"chronology"});
+    t2.messages = t2.messages.slice(-TEMPORAL_RULES.maxT2Messages);
+  }
+  t2.unreadReplies = 0;
   saveT2Memory();
+  saveMetaProgress();
   modal(m => {
     m.append(el("h3", "ХРОНОЛОГИЯ"));
     m.append(el("p", "Наблюдатель между линиями сохраняет ваши решения. Выберите завершённую, текущую или приостановленную ветку, чтобы изучить её ход и последствия."));
@@ -3779,7 +3793,28 @@ function openChronologyFromSplash() {
     observer.append(el("strong", "Т2 · НАБЛЮДАТЕЛЬ МЕЖДУ ВРЕМЕННЫМИ ЛИНИЯМИ"));
     observer.append(el("p", "«" + observation + "»"));
     observer.append(el("small", t2MemorySummary()));
-    const talk = el("button", "Ответить Т2 между линиями"); talk.type = "button"; talk.onclick = () => openT2Chat(); observer.append(talk);
+
+    const transcript = el("div", "");
+    transcript.style.cssText = "display:flex;flex-direction:column;gap:5px;max-height:22vh;overflow:auto";
+    t2.messages.slice(-5).forEach(line => {
+      const item = el("p", (line.from === "Вы" ? "Вы: " : "Т2: ") + line.text);
+      item.className = "t2-line" + (line.from === "Вы" ? " user" : "");
+      transcript.append(item);
+    });
+    observer.append(transcript);
+
+    const t2Wait = Math.max(0, Number(t2.nextActionAt || 0) - Date.now());
+    if (t2Wait > 0 || (t2.pendingReplies || []).some(x => Number(x.dueAt) > Date.now())) {
+      const pending = el("p", "Т2 обрабатывает предыдущий ответ. Следующий сигнал ожидается через " + formatRemaining(t2Wait) + ". Вы можете открыть полный канал, не сбрасывая ожидание.");
+      pending.className = "temporal-note"; observer.append(pending);
+    } else {
+      observer.append(el("p", "Ответьте Т2 сейчас. Ваш выбор изменит его отношение и повлияет на последующие временные линии."));
+      [["help","✦ Попытаться спасти всех и помочь Т2"],["experiment","⟁ Провести жестокий эксперимент"],["argue","⌁ Оспорить выводы Т2"]].forEach(([action,label]) => {
+        const reply = el("button", label); reply.type = "button"; reply.onclick = () => chooseT2(action); observer.append(reply);
+      });
+    }
+    const fullChannel = el("button", "Открыть полный диалог с Т2");
+    fullChannel.type = "button"; fullChannel.onclick = () => openT2Chat(); observer.append(fullChannel);
     m.append(observer);
 
     m.append(el("h3", "ПЕРЕКЛЮЧЕНИЕ ВРЕМЕННЫХ ЛИНИЙ"));
@@ -3873,7 +3908,7 @@ function openJournal() {
       const b = el("button", "Посмотреть завершённую временную линию"); b.type = "button"; b.onclick = () => viewCompletedRoute(line); card.append(b);
       m.append(card);
     });
-    m.append(el("h3", "Переключение временных линий"));
+    m.append(el("h3", "ХРОНОЛОГИЯ"));
     const lineChoices = [];
     (st.timelines || []).forEach(line => lineChoices.push({key:"saved:"+line.timelineId+":"+line.endingId, label:"Линия №"+line.timelineId+" · "+(line.endingTitle || "финал"), data:line}));
     (metaProgress.completedRoutes || []).forEach((line,i) => lineChoices.push({key:"completed:"+i, label:"Линия №"+(line.timelineId || "—")+" · "+(line.endingTitle || "завершена"), data:line}));
@@ -3931,7 +3966,7 @@ function openJournal() {
       warning.className = "journal-note journal-note-new"; m.append(warning);
     }
     if (!decisions.length) {
-      m.append(el("p", "Здесь будут сохраняться принятые решения. После разблокировки режима временных линий их можно будет пересматривать."));
+      m.append(el("p", "Здесь будут сохраняться принятые решения. После разблокировки Хронологии их можно будет пересматривать."));
     } else {
       const historyBox = el("div", ""); historyBox.className = "dossier-list";
       decisions.slice().reverse().forEach((d, reverseIndex) => {
