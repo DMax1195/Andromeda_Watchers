@@ -3944,6 +3944,7 @@ $("#cont").onclick = () => {
     st = JSON.parse(savedRaw);
     if (!st || typeof st !== "object" || Array.isArray(st) || !st.node || !STORY_DATA.nodes[st.node]) throw new Error("Некорректная структура сохранения");
   } catch (error) {
+    console.error("Ошибка восстановления сохранения:", error);
     st = null;
     modal(m => {
       m.append(el("h3", "НЕ УДАЛОСЬ ПРОДОЛЖИТЬ"), el("p", "Сохранение повреждено или относится к несовместимой версии. Оно оставлено в браузере без изменений. Можно начать новое прохождение с обложки."));
@@ -4051,31 +4052,61 @@ $("#cont").onclick = () => {
   applyT2Carryover(st);
   ensureTimelineState(st);
 
-  // Старые сохранения могли хранить обычные абзацы как сообщения с подписью героя.
-  // Переводим их в книжный стиль; реальные реплики оставляем с тире.
-  if (Array.isArray(st.chat)) st.chat.forEach(m => {
-    if (m && m.k === "in") {
-      const dialogue = isSpeechText(m.t || "") || !!m.f;
+  // Перед преобразованием старого формата восстанавливаем body из алиасов
+  // и из авторского STORY_DATA. Раньше m.k="in" с пустым t превращался
+  // в «—» и терял текст реплики навсегда — именно это давало пустые пузыри.
+  if (!Array.isArray(st.visitedNodes)) st.visitedNodes = st.node ? [st.node] : [];
+  const transcriptRepair = recoverLegacyTranscript(st);
+  if (!Array.isArray(st.chat)) st.chat = [];
+  st.chat.forEach(m => {
+    if (!m || typeof m !== "object") return;
+    if (typeof m.t !== "string") m.t = savedMessageText(m);
+    if (m.k === "in") {
+      const dialogue = isSpeechText(m.t || "") || !!m.f || !!m.from || !!m.speaker;
       m.k = dialogue ? "spk" : "nar";
       if (dialogue && !isSpeechText(m.t || "")) m.t = "— " + (m.t || "");
     }
+    if (m.k === "spk" && !cleanSavedBody(m.t || "")) m.__dropEmptyLegacy = true;
   });
-  if (Array.isArray(st.queue)) st.queue.forEach(q => {
-    if (q && !q.k && q.k !== "hd" && q.k !== "sep") q.k = isSpeechText(q.t || "") || q.f ? "spk" : "nar";
+  const chatBeforeCleanup = st.chat.length;
+  st.chat = st.chat.filter(m => !m || !m.__dropEmptyLegacy);
+  const removedEmptyChat = chatBeforeCleanup - st.chat.length;
+  if (!Array.isArray(st.queue)) st.queue = [];
+  st.queue.forEach(q => {
+    if (!q || typeof q !== "object") return;
+    if (typeof q.t !== "string" || !q.t.trim()) q.t = savedMessageText(q);
+    if (!q.k && q.k !== "hd" && q.k !== "sep") q.k = isSpeechText(q.t || "") || q.f ? "spk" : "nar";
   });
   if (!Number.isFinite(Number(st.paragraphsShownInNode)) || Number(st.paragraphsShownInNode) < 0) {
     st.paragraphsShownInNode = Array.isArray(st.queue) && st.queue.length && Array.isArray(st.chat) && st.chat.length ? 1 : 0;
   }
 
-  // Совместимость со старыми сохранениями: включаем постраничное чтение
-  // для оставшейся очереди, если в сохранении ещё нет параметров пагинации.
-  if (Array.isArray(st.queue) && typeof st.paged !== "boolean") {
-    const np = st.queue.filter(isPar).length;
-    st.paged = np > 3;
-    st.pgSizes = st.paged ? chunkSizes(np) : [];
-    st.pgLeft = st.paged ? st.pgSizes.shift() : 0;
+  // Не допускаем падения pump() на старых сохранениях без pgSizes/pgLeft.
+  if (typeof st.paged !== "boolean") st.paged = st.queue.filter(isPar).length > 3;
+  if (!Array.isArray(st.pgSizes)) st.pgSizes = [];
+  st.pgSizes = st.pgSizes.map(Number).filter(n => Number.isFinite(n) && n > 0).map(Math.floor);
+  if (!Number.isFinite(Number(st.pgLeft)) || Number(st.pgLeft) < 0) st.pgLeft = 0;
+  if (st.paged && st.queue.some(isPar) && !st.pgSizes.length && Number(st.pgLeft) <= 0) {
+    const remaining = st.queue.filter(isPar).length;
+    st.pgSizes = chunkSizes(remaining);
+    st.pgLeft = st.pgSizes.shift() || Math.min(3, remaining);
+  }
+  if (!Number.isFinite(Number(st.hp))) st.hp = 20;
+  if (!Number.isFinite(Number(st.o2))) st.o2 = 100;
+  if (!Number.isFinite(Number(st.en))) st.en = 100;
+  if (!Number.isFinite(Number(st.ammo))) st.ammo = 0;
+  if (!Array.isArray(st.skills)) st.skills = [];
+  if (!st.mode || !["real", "fast"].includes(st.mode)) st.mode = "real";
+  if (typeof st.sound !== "boolean") st.sound = true;
+  cfg.mode = st.mode; cfg.sound = st.sound;
+  if (transcriptRepair.repaired || transcriptRepair.removed || removedEmptyChat) {
+    add("sys", "[ВОССТАНОВЛЕНИЕ СОХРАНЕНИЯ: восстановлено фрагментов текста — " + transcriptRepair.repaired + "; удалено пустых старых заглушек — " + (transcriptRepair.removed + removedEmptyChat) + ". Текущее прохождение и выборы сохранены.]");
+    save();
   }
 
+  // Продолжаем текущую очередь, не вызывая enter(): это не повторяет эффекты
+  // сцены, не списывает ресурсы второй раз и не сбрасывает её таймеры.
+  stopResponseDeadlineTicker();
   show("game"); status(); $("#chat").innerHTML = ""; st.chat.forEach(draw); processRealtimeQueue(); pump();
 };
 const show = id => {
@@ -4150,7 +4181,169 @@ function consumeSkillBuff(skill) {
 const SPEECH = /^\s*(?:[—―]\s*|–\s+)/u;
 const SPEAKER_PREFIX = /^\s*\[([^\]]+)\]\s*:\s*/u;
 const isSpeechText = value => SPEECH.test(String(value || "")) || /^\s*\[[^\]]+\]\s*:\s*[—―–]/u.test(String(value || ""));
-const fill = t => t.replace(/\{hero\}/g, st ? st.hero : "").replace(/\{author\}/g, STORY_DATA.meta.author);
+const fill = t => String(t == null ? "" : t).replace(/\{hero\}/g, st ? st.hero : "").replace(/\{author\}/g, STORY_DATA.meta.author);
+
+// Миграция старой стенограммы. В ранних сохранениях текст мог лежать не в t,
+// а в text/body/content/message/n; часть старых печатных реплик сохранялась
+// как пустая оболочка {k:"in", f:"Имя"}. Восстанавливаем их из STORY_DATA.
+function savedMessageText(record) {
+  if (!record || typeof record !== "object") return "";
+  const fields = ["t", "text", "body", "content", "message", "value", "rawText", "fullText", "n"];
+  for (const key of fields) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
+}
+function cleanSavedBody(value) {
+  let text = String(value == null ? "" : value);
+  const prefix = text.match(SPEAKER_PREFIX);
+  if (prefix) text = text.slice(prefix[0].length);
+  return text.replace(/^\s*[—―–-]\s*/u, "").trim().replace(/\s+/gu, " ");
+}
+function savedSpeaker(record) {
+  if (!record || typeof record !== "object") return "";
+  const prefix = String(record.t || record.text || "").match(SPEAKER_PREFIX);
+  return String((prefix && prefix[1]) || record.f || record.from || record.speaker || record.author || "").trim();
+}
+function makeAuthoredTranscript(nodeIds) {
+  const result = [];
+  (nodeIds || []).forEach(nodeId => {
+    const node = STORY_DATA.nodes[nodeId];
+    if (!node || !Array.isArray(node.messages)) return;
+    node.messages.forEach((item, index) => {
+      if (typeof item === "string") {
+        if (item.trim() === "***") result.push({nodeId, index, k:"sep", t:"* * *", f:""});
+        else result.push({nodeId, index, k:isSpeechText(item) ? "spk" : "nar", t:fill(item), f:""});
+        return;
+      }
+      if (!item || typeof item !== "object") return;
+      const raw = String(item.n || item.t || item.text || item.body || "");
+      if (item.sep || raw.trim() === "***") {
+        result.push({nodeId, index, k:"sep", t:"* * *", f:""});
+        return;
+      }
+      if (!raw.trim()) return;
+      const from = String(item.from || item.speaker || item.author || "").trim();
+      let text = fill(raw);
+      const dialogue = isSpeechText(text) || !!from;
+      if (dialogue && !isSpeechText(text)) text = "— " + text;
+      result.push({nodeId, index, k:dialogue ? "spk" : "nar", t:text, f:from});
+    });
+  });
+  return result;
+}
+function recoverLegacyTranscript(target) {
+  if (!target) return {repaired:0, removed:0};
+  const ids = Array.isArray(target.visitedNodes) ? target.visitedNodes.slice() : [];
+  // В самых старых сохранениях visitedNodes ещё не было; decisionHistory хранит
+  // последовательность пройденных узлов и позволяет восстановить тот же маршрут.
+  if (Array.isArray(target.decisionHistory)) target.decisionHistory.forEach(decision => {
+    const nodeId = decision && (decision.node || decision.sourceNode);
+    if (nodeId && STORY_DATA.nodes[nodeId] && !ids.includes(nodeId)) ids.push(nodeId);
+  });
+  if (target.node && !ids.includes(target.node)) ids.push(target.node);
+  const source = makeAuthoredTranscript(ids);
+  if (!source.length) return {repaired:0, removed:0};
+  const used = new Set();
+  let cursor = 0, repaired = 0, removed = 0;
+  const sameSpeaker = (a,b) => normalizedSpeakerName(a) === normalizedSpeakerName(b);
+  const findSource = (saved, fromIndex) => {
+    const body = cleanSavedBody(savedMessageText(saved));
+    const speaker = savedSpeaker(saved);
+    const kind = saved && saved.k === "sep" ? "sep" : (speaker || (saved && saved.k === "spk") ? "spk" : (saved && saved.k === "in" ? "any" : "nar"));
+    // Сначала ищем после последней надёжно сопоставленной реплики — это сохраняет порядок сцен.
+    for (let i = Math.max(0, fromIndex); i < source.length; i++) {
+      const candidate = source[i];
+      if (used.has(i)) continue;
+      if (kind === "sep") { if (candidate.k === "sep") return i; continue; }
+      if (speaker && (candidate.k !== "spk" || !sameSpeaker(candidate.f, speaker))) continue;
+      if (!speaker && kind !== "any" && candidate.k !== kind) continue;
+      if (body) {
+        const a = body.toLocaleLowerCase("ru"), b = cleanSavedBody(candidate.t).toLocaleLowerCase("ru");
+        if (a !== b && !a.includes(b) && !b.includes(a)) continue;
+      }
+      return i;
+    }
+    // Сохранения с обрезанной историей могут начинаться посреди книги.
+    if (!body) {
+      for (let i = 0; i < source.length; i++) {
+        const candidate = source[i];
+        if (used.has(i)) continue;
+        if (kind === "sep" ? candidate.k === "sep" : (speaker ? candidate.k === "spk" && sameSpeaker(candidate.f, speaker) : (kind === "any" || candidate.k === kind))) return i;
+      }
+    }
+    return -1;
+  };
+
+  if (Array.isArray(target.chat)) {
+    target.chat.forEach(record => {
+      if (!record || typeof record !== "object" || record.k === "hd" || record.k === "sys") return;
+      const existing = savedMessageText(record);
+      const body = cleanSavedBody(existing);
+      const idx = findSource(record, cursor);
+      if (body) {
+        if (idx >= 0) { used.add(idx); cursor = Math.max(cursor, idx + 1); }
+        // Нормализуем альтернативные поля только если основное поле t отсутствует.
+        if (typeof record.t !== "string" || !record.t.trim()) record.t = existing;
+        return;
+      }
+      if (idx >= 0) {
+        const authored = source[idx];
+        record.t = authored.t;
+        record.k = authored.k;
+        if (authored.f) record.f = authored.f;
+        record.nodeId = record.nodeId || authored.nodeId;
+        used.add(idx); cursor = idx + 1; repaired++;
+      } else if (record.k === "in" || record.k === "spk" || record.f || record.from || record.speaker) {
+        // Не оставляем пустой пузырь с одним именем и тире.
+        record.__dropEmptyLegacy = true;
+      }
+    });
+    const before = target.chat.length;
+    target.chat = target.chat.filter(record => !record || !record.__dropEmptyLegacy);
+    removed += before - target.chat.length;
+  }
+
+  // Очередь незавершённой сцены тоже могла содержать старые записи с текстом в body/n.
+  if (!Array.isArray(target.queue)) target.queue = [];
+  const currentNode = STORY_DATA.nodes[target.node];
+  const currentSource = makeAuthoredTranscript([target.node]);
+  let queueCursor = 0;
+  const shown = Math.max(0, Math.floor(Number(target.paragraphsShownInNode) || 0));
+  let skipped = 0;
+  while (queueCursor < currentSource.length && skipped < shown) {
+    if (currentSource[queueCursor].k !== "sep") skipped++;
+    queueCursor++;
+  }
+  target.queue.forEach(record => {
+    if (!record || typeof record !== "object" || record.k === "hd" || record.k === "sep") return;
+    const existing = savedMessageText(record);
+    if (cleanSavedBody(existing)) {
+      if (typeof record.t !== "string" || !record.t.trim()) record.t = existing;
+      return;
+    }
+    const speaker = savedSpeaker(record);
+    let idx = -1;
+    for (let i = queueCursor; i < currentSource.length; i++) {
+      const candidate = currentSource[i];
+      if (speaker ? (candidate.k === "spk" && sameSpeaker(candidate.f, speaker)) : candidate.k !== "sep") { idx = i; break; }
+    }
+    if (idx >= 0) {
+      record.t = currentSource[idx].t;
+      record.k = currentSource[idx].k;
+      if (currentSource[idx].f) record.f = currentSource[idx].f;
+      queueCursor = idx + 1; repaired++;
+    } else {
+      record.__dropEmptyLegacy = true;
+    }
+  });
+  const queueBefore = target.queue.length;
+  target.queue = target.queue.filter(record => !record || !record.__dropEmptyLegacy);
+  removed += queueBefore - target.queue.length;
+
+  return {repaired, removed};
+}
 
 const ATTRIBUTION_NAMES = [
   "Капитан\\s+Брандт", "Брандт", "Боцман\\s+Хольгер", "Хольгер",
@@ -4231,9 +4424,9 @@ function draw(m, emptyText = false) {
   const c = $("#chat"); c.append(d); c.scrollTop = c.scrollHeight;
   return { element: d, textNode };
 }
-function add(k, t, bad, x) { const m = { k, t, bad }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; } st.chat.push(m); if (st.chat.length > CHAT_MAX) st.chat.splice(0, st.chat.length - CHAT_MAX); draw(m); const cb = $("#chat"); while (cb.children.length > CHAT_MAX) cb.firstChild.remove(); save(); }
+function add(k, t, bad, x) { const m = { k, t, bad, nodeId: st && st.node || "" }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; } st.chat.push(m); if (st.chat.length > CHAT_MAX) st.chat.splice(0, st.chat.length - CHAT_MAX); draw(m); const cb = $("#chat"); while (cb.children.length > CHAT_MAX) cb.firstChild.remove(); save(); }
 async function addTyped(k, t, bad, x, my) {
-  const m = { k, t, bad }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; }
+  const m = { k, t, bad, nodeId: st && st.node || "" }; if (x) { m.f = x.f; m.no = x.no; m.pages = x.pages; }
   // Учитываем абзац один раз в отложенном буфере. Он попадёт в общий счётчик
   // при нажатии «Читать дальше...» или выборе сюжетного действия.
   if (x && x.k !== "hd" && x.k !== "sep") {
